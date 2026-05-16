@@ -241,33 +241,32 @@ struct CanvasView: View {
                         }
                     }
 
-                    // A4グリッド表示（パターン範囲をA4で何枚必要か自動計算）
-                    let a4W: CGFloat = 794 * scale
-                    let a4H: CGFloat = 1123 * scale
-                    // キャンバス全体をカバーするグリッド数
-                    let gridCols = Int(ceil(geometry.size.width / a4W)) + 1
-                    let gridRows = Int(ceil(geometry.size.height / a4H)) + 1
-                    // オフセットに合わせてグリッド起点を計算
-                    let startCol = Int(floor(-offset.width / a4W))
-                    let startRow = Int(floor(-offset.height / a4H))
-                    ForEach(startCol..<(startCol + gridCols), id: \.self) { col in
-                        ForEach(startRow..<(startRow + gridRows), id: \.self) { row in
-                            let x = offset.width + CGFloat(col) * a4W
-                            let y = offset.height + CGFloat(row) * a4H
-                            // 負のページは表示しない
-                            if col >= 0 && row >= 0 {
-                                Path { path in
-                                    path.addRect(CGRect(x: x, y: y, width: a4W, height: a4H))
+                    // 用紙サイズグリッド表示（設定の用紙サイズに連動）
+                    if canvasState.showPaperGrid {
+                        let paperW: CGFloat = canvasState.currentPaperSize.width * scale
+                        let paperH: CGFloat = canvasState.currentPaperSize.height * scale
+                        let gridCols = Int(ceil(geometry.size.width / paperW)) + 1
+                        let gridRows = Int(ceil(geometry.size.height / paperH)) + 1
+                        let startCol = Int(floor(-offset.width / paperW))
+                        let startRow = Int(floor(-offset.height / paperH))
+                        ForEach(startCol..<(startCol + gridCols), id: \.self) { col in
+                            ForEach(startRow..<(startRow + gridRows), id: \.self) { row in
+                                let x = offset.width + CGFloat(col) * paperW
+                                let y = offset.height + CGFloat(row) * paperH
+                                if col >= 0 && row >= 0 {
+                                    Path { path in
+                                        path.addRect(CGRect(x: x, y: y, width: paperW, height: paperH))
+                                    }
+                                    .stroke(Color.gray.opacity(0.4), lineWidth: 1)
+                                    Text("\(canvasState.paperSize.rawValue)-\(row * (startCol + gridCols) + col + 1)")
+                                        .font(.system(size: 9))
+                                        .foregroundColor(.gray.opacity(0.5))
+                                        .position(CGPoint(x: x + 14, y: y + 14))
                                 }
-                                .stroke(Color.gray.opacity(0.4), lineWidth: 1)
-                                Text("P\(row * (startCol + gridCols) + col + 1)")
-                                    .font(.system(size: 9))
-                                    .foregroundColor(.gray.opacity(0.5))
-                                    .position(CGPoint(x: x + 14, y: y + 14))
                             }
                         }
                     }
-
+                    
                     // 線を描画
                     ForEach(canvasState.lines) { line in
                         let p1 = toScreen(line.startPoint)

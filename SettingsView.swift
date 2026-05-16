@@ -26,6 +26,8 @@ struct SettingsView: View {
                     .foregroundColor(.secondary)
                 Toggle("グリッドを表示", isOn: $canvasState.showGrid)
                     .font(.system(size: 13))
+                Toggle("用紙グリッドを表示", isOn: $canvasState.showPaperGrid)
+                    .font(.system(size: 13))
             }
 
             Divider()

@@ -14,7 +14,7 @@ struct ContentView: View {
     @State private var selectedCurveID: UUID? = nil
     @State private var mousePosition: CGPoint = .zero
     @State private var statusMessage: String = "点を追加するにはキャンバスをクリックしてください"
-    @State private var scale: CGFloat = 1.0
+    @State private var scale: CGFloat = 0.3
     @State private var showMeasurements = false
     @State private var showSettings = false
     @State private var duplicateNameAlert = false
@@ -76,7 +76,6 @@ struct ContentView: View {
                     statusMessage = String(format: "ズーム: %.0f%%", scale * 100)
                 }) { Label("Zoom Out", systemImage: "minus.magnifyingglass") }
                 Button(action: {
-                    scale = 1.0
                     resetOffsetTrigger.toggle()
                     statusMessage = "原点に戻りました"
                 }) {
