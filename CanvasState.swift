@@ -23,6 +23,29 @@ enum PaperSize: String, CaseIterable {
     }
 }
 
+// 縫い代の適用側
+enum SeamSide: String, Codable {
+    case both
+    case left
+    case right
+}
+
+// 線ごとの縫い代個別設定
+struct SeamAllowanceOverride: Identifiable {
+    let id = UUID()
+    var lineID: UUID
+    var width: CGFloat   // cm
+    var side: SeamSide
+}
+
+// ノッチ（合い印）
+struct Notch: Identifiable {
+    let id = UUID()
+    var lineID: UUID    // どの線の上か
+    var t: CGFloat      // 0.0〜1.0（線上の位置）
+    var size: CGFloat   // px単位のサイズ
+}
+
 class CanvasState: ObservableObject {
     @Published var points: [PatternPoint] = []
     @Published var lines: [PatternLine] = []
@@ -32,17 +55,38 @@ class CanvasState: ObservableObject {
     @Published var canUndo: Bool = false
     @Published var canRedo: Bool = false
 
+    // フェーズ2
+    @Published var seamOverrides: [SeamAllowanceOverride] = []
+    @Published var notches: [Notch] = []
+
     // 設定
     @Published var showGrid: Bool = true
-    @Published var paperSize: PaperSize = .a4
-    @Published var customPaperWidth: CGFloat = 794
-    @Published var customPaperHeight: CGFloat = 1123
+    @Published var paperSize: PaperSize = .a4 {
+        didSet {
+            if paperSize != .custom {
+                currentPaperSize = paperSize.size
+            }
+        }
+    }
+    @Published var customPaperWidth: CGFloat = 794 {
+        didSet {
+            if paperSize == .custom {
+                currentPaperSize = CGSize(width: customPaperWidth, height: customPaperHeight)
+            }
+        }
+    }
+    @Published var customPaperHeight: CGFloat = 1123 {
+        didSet {
+            if paperSize == .custom {
+                currentPaperSize = CGSize(width: customPaperWidth, height: customPaperHeight)
+            }
+        }
+    }
     @Published var showSeamAllowance: Bool = false
     @Published var seamAllowance: CGFloat = 1.0
 
-    var currentPaperSize: CGSize {
-        paperSize == .custom ? CGSize(width: customPaperWidth, height: customPaperHeight) : paperSize.size
-    }
+    // @Published にすることで CanvasView が変化を検知して再描画される
+    @Published var currentPaperSize: CGSize = PaperSize.a4.size
 
     private var history: [Snapshot] = []
     private var historyIndex: Int = -1
@@ -54,20 +98,29 @@ class CanvasState: ObservableObject {
         var curves: [CurveData]
         var arcs: [ArcData]
         var texts: [TextAnnotation]
+        var seamOverrides: [SeamAllowanceOverride]
+        var notches: [Notch]
     }
 
     init() {
         saveSnapshot()
     }
 
+    // 指定した線の縫い代幅を返す（個別設定がなければデフォルト値）
+    func seamWidth(for lineID: UUID) -> CGFloat {
+        seamOverrides.first(where: { $0.lineID == lineID })?.width ?? seamAllowance
+    }
+
     func saveSnapshot() {
         if historyIndex < history.count - 1 {
             history.removeSubrange((historyIndex + 1)...)
         }
-        history.append(Snapshot(points: points, lines: lines, curves: curves, arcs: arcs, texts: texts))
-        if history.count > maxHistory {
-            history.removeFirst()
-        }
+        history.append(Snapshot(
+            points: points, lines: lines, curves: curves,
+            arcs: arcs, texts: texts,
+            seamOverrides: seamOverrides, notches: notches
+        ))
+        if history.count > maxHistory { history.removeFirst() }
         historyIndex = history.count - 1
         canUndo = historyIndex > 0
         canRedo = historyIndex < history.count - 1
@@ -76,12 +129,10 @@ class CanvasState: ObservableObject {
     func undo() {
         guard historyIndex > 0 else { return }
         historyIndex -= 1
-        let snapshot = history[historyIndex]
-        points = snapshot.points
-        lines = snapshot.lines
-        curves = snapshot.curves
-        arcs = snapshot.arcs
-        texts = snapshot.texts
+        let s = history[historyIndex]
+        points = s.points; lines = s.lines; curves = s.curves
+        arcs = s.arcs; texts = s.texts
+        seamOverrides = s.seamOverrides; notches = s.notches
         canUndo = historyIndex > 0
         canRedo = historyIndex < history.count - 1
     }
@@ -89,12 +140,10 @@ class CanvasState: ObservableObject {
     func redo() {
         guard historyIndex < history.count - 1 else { return }
         historyIndex += 1
-        let snapshot = history[historyIndex]
-        points = snapshot.points
-        lines = snapshot.lines
-        curves = snapshot.curves
-        arcs = snapshot.arcs
-        texts = snapshot.texts
+        let s = history[historyIndex]
+        points = s.points; lines = s.lines; curves = s.curves
+        arcs = s.arcs; texts = s.texts
+        seamOverrides = s.seamOverrides; notches = s.notches
         canUndo = historyIndex > 0
         canRedo = historyIndex < history.count - 1
     }
@@ -126,8 +175,23 @@ class CanvasState: ObservableObject {
             SavedText(x: $0.position.x, y: $0.position.y,
                      text: $0.text, fontSize: $0.fontSize)
         }
-        return PatternData(points: savedPoints, lines: savedLines, curves: savedCurves,
-                          arcs: savedArcs, texts: savedTexts)
+        let savedNotches = notches.map {
+            SavedNotch(lineID: $0.lineID, t: $0.t, size: $0.size)
+        }
+        let savedSeamOverrides = seamOverrides.map {
+            SavedSeamOverride(lineID: $0.lineID, width: $0.width, side: $0.side.rawValue)
+        }
+
+        return PatternData(
+            points: savedPoints,
+            lines: savedLines,
+            curves: savedCurves,
+            arcs: savedArcs,
+            texts: savedTexts,
+            notches: savedNotches,
+            seamOverrides: savedSeamOverrides,
+            gradePoints: []
+        )
     }
 
     func load(from data: PatternData) {
@@ -157,21 +221,27 @@ class CanvasState: ObservableObject {
             TextAnnotation(position: CGPoint(x: $0.x, y: $0.y),
                           text: $0.text, fontSize: $0.fontSize)
         }
+        notches = data.notches.map {
+            Notch(lineID: $0.lineID, t: $0.t, size: $0.size)
+        }
+        seamOverrides = data.seamOverrides.map {
+            SeamAllowanceOverride(
+                lineID: $0.lineID,
+                width: $0.width,
+                side: SeamSide(rawValue: $0.side) ?? .both
+            )
+        }
         history = []
         historyIndex = -1
         saveSnapshot()
     }
 
     func reset() {
-        points = []
-        lines = []
-        curves = []
-        arcs = []
-        texts = []
-        history = []
-        historyIndex = -1
-        canUndo = false
-        canRedo = false
+        points = []; lines = []; curves = []
+        arcs = []; texts = []
+        seamOverrides = []; notches = []
+        history = []; historyIndex = -1
+        canUndo = false; canRedo = false
     }
 }
 

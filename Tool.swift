@@ -18,4 +18,11 @@ enum Tool {
     case midpoint      // 中点
     case arc           // 円弧
     case text          // テキスト
+    case lineInput
+    case intersection
+    // フェーズ2
+    case mirror        // 鏡像コピー
+    case notch         // ノッチ（合いじるし）
+    case seamOverride  // 縫い代個別設定
+    case grading       // グレーディング
 }

@@ -24,15 +24,8 @@ struct SettingsView: View {
                 Text("グリッド")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
-                Toggle("グリッドを表示", isOn: Binding(
-                    get: { canvasState.showGrid },
-                    set: { newValue in
-                        DispatchQueue.main.async {
-                            canvasState.showGrid = newValue
-                        }
-                    }
-                ))
-                .font(.system(size: 13))
+                Toggle("グリッドを表示", isOn: $canvasState.showGrid)
+                    .font(.system(size: 13))
             }
 
             Divider()
@@ -42,14 +35,7 @@ struct SettingsView: View {
                 Text("用紙サイズ")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
-                Picker("", selection: Binding(
-                    get: { canvasState.paperSize },
-                    set: { newValue in
-                        DispatchQueue.main.async {
-                            canvasState.paperSize = newValue
-                        }
-                    }
-                )) {
+                Picker("", selection: $canvasState.paperSize) {
                     ForEach(PaperSize.allCases, id: \.self) { size in
                         Text(size.rawValue).tag(size)
                     }
@@ -92,15 +78,8 @@ struct SettingsView: View {
                 Text("縫い代")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
-                Toggle("縫い代を表示", isOn: Binding(
-                    get: { canvasState.showSeamAllowance },
-                    set: { newValue in
-                        DispatchQueue.main.async {
-                            canvasState.showSeamAllowance = newValue
-                        }
-                    }
-                ))
-                .font(.system(size: 13))
+                Toggle("縫い代を表示", isOn: $canvasState.showSeamAllowance)
+                    .font(.system(size: 13))
                 if canvasState.showSeamAllowance {
                     HStack {
                         Text("幅:")
