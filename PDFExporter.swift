@@ -6,342 +6,342 @@
 import AppKit
 import SwiftUI
 
-enum PDFOutputMode: String, CaseIterable {
-    case finishedLine = "仕上がり線のみ"
-    case withSeam     = "縫い代込み"
-}
-
 class PDFExporter {
 
-    // MARK: - メイン出力
-    static func export(canvasState: CanvasState, scale: CGFloat, mode: PDFOutputMode = .finishedLine) {
+    private static let margin:  CGFloat = 28.35   // マージン 1cm
+    private static let overlap: CGFloat = 14.17   // のりしろ 0.5cm
+    private static let pxToPt:  CGFloat = 28.35 / 37.8  // 1px → pt
+
+    static func export(canvasState: CanvasState, scale: CGFloat, includeSeamAllowance: Bool = false) {
+
+        print("=== PDF Export ===")
+        print("paperSize: \(canvasState.paperSize.rawValue)")
+        print("includeSeamAllowance: \(includeSeamAllowance)")
+        print("seamAllowance: \(canvasState.seamAllowance) cm")
+
         DispatchQueue.main.async {
             let panel = NSSavePanel()
             panel.allowedContentTypes = [.pdf]
             panel.nameFieldStringValue = "pattern.pdf"
+
             panel.begin { response in
                 guard response == .OK, let url = panel.url else { return }
+
+                // ─── 用紙1枚のサイズ ───
+                let paperPx  = canvasState.currentPaperSize
+                let paperPtW = paperPx.width  * pxToPt
+                let paperPtH = paperPx.height * pxToPt
+
+                print("用紙1枚: \(Int(paperPx.width))×\(Int(paperPx.height))px → \(Int(paperPtW))×\(Int(paperPtH))pt")
+
+                // ─── コンテンツの最大座標 ───
+                var allPts: [CGPoint] = []
+                allPts += canvasState.points.map { $0.position }
+                for line in canvasState.lines {
+                    allPts.append(line.startPoint)
+                    allPts.append(line.endPoint)
+                }
+                for curve in canvasState.curves { allPts += curve.nodes.map { $0.point } }
+                for arc in canvasState.arcs {
+                    allPts.append(CGPoint(x: arc.center.x - arc.radius, y: arc.center.y - arc.radius))
+                    allPts.append(CGPoint(x: arc.center.x + arc.radius, y: arc.center.y + arc.radius))
+                }
+                for text in canvasState.texts { allPts.append(text.position) }
+                guard !allPts.isEmpty else { print("描画要素なし"); return }
+
+                let contentMaxX = allPts.map { $0.x }.max()!
+                let contentMaxY = allPts.map { $0.y }.max()!
+
+                // ─── ページ分割（キャンバスの用紙区切りに合わせる）───
+                let cols = max(1, Int(ceil(contentMaxX / paperPx.width)))
+                let rows = max(1, Int(ceil(contentMaxY / paperPx.height)))
+                let totalPages = cols * rows
+                print("分割: \(cols)列 × \(rows)行 = \(totalPages)ページ")
+
+                // ─── PDF生成 ───
+                let pdfData = NSMutableData()
+                var mediaBox = CGRect(x: 0, y: 0, width: paperPtW, height: paperPtH)
+                guard let consumer = CGDataConsumer(data: pdfData),
+                      let context  = CGContext(consumer: consumer, mediaBox: &mediaBox, nil)
+                else { return }
+
+                for row in 0..<rows {
+                    for col in 0..<cols {
+                        let pageIndex     = row * cols + col + 1
+                        let pageOriginXpx = CGFloat(col) * paperPx.width
+                        let pageOriginYpx = CGFloat(row) * paperPx.height
+
+                        context.beginPDFPage(nil)
+                        context.setFillColor(NSColor.white.cgColor)
+                        context.fill(CGRect(x: 0, y: 0, width: paperPtW, height: paperPtH))
+
+                        // ─── 座標変換 ───
+                        func toPage(_ p: CGPoint) -> CGPoint {
+                            let ptX = margin + (p.x - pageOriginXpx) * pxToPt
+                            let ptY = paperPtH - margin - (p.y - pageOriginYpx) * pxToPt
+                            return CGPoint(x: ptX, y: ptY)
+                        }
+
+                        // このページの範囲（px）
+                        let pageMinXpx = pageOriginXpx
+                        let pageMaxXpx = pageOriginXpx + paperPx.width
+                        let pageMinYpx = pageOriginYpx
+                        let pageMaxYpx = pageOriginYpx + paperPx.height
+
+                        func lineIntersectsPage(_ line: PatternLine) -> Bool {
+                            let minX = min(line.startPoint.x, line.endPoint.x)
+                            let maxX = max(line.startPoint.x, line.endPoint.x)
+                            let minY = min(line.startPoint.y, line.endPoint.y)
+                            let maxY = max(line.startPoint.y, line.endPoint.y)
+                            return maxX > pageMinXpx && minX < pageMaxXpx &&
+                                   maxY > pageMinYpx && minY < pageMaxYpx
+                        }
+
+                        // クリップ（マージン内）
+                        context.saveGState()
+                        context.clip(to: CGRect(
+                            x: margin, y: margin,
+                            width:  paperPtW - margin * 2,
+                            height: paperPtH - margin * 2
+                        ))
+
+                        // ─── 縫い代（青い破線 ← 画面と同じ色）───
+                        if includeSeamAllowance {
+                            context.saveGState()
+                            // 画面と同じ青色
+                            context.setStrokeColor(NSColor.systemBlue.cgColor)
+                            context.setLineWidth(0.5)
+                            context.setLineDash(phase: 0, lengths: [4, 4])
+
+                            // 直線の縫い代
+                            // 線ごとに個別設定(seamOverrides)があればそれを使い、なければデフォルト値
+                            for line in canvasState.lines {
+                                guard lineIntersectsPage(line) else { continue }
+                                let seamCm = canvasState.seamWidth(for: line.id)
+                                let seamPt = seamCm * 37.8 * pxToPt
+                                let p1 = toPage(line.startPoint)
+                                let p2 = toPage(line.endPoint)
+                                let dx = p2.x - p1.x, dy = p2.y - p1.y
+                                let len = sqrt(dx*dx + dy*dy)
+                                guard len > 0 else { continue }
+                                // Y軸反転に合わせて法線方向を反転
+                                let nx =  dy / len * seamPt
+                                let ny = -dx / len * seamPt
+                                context.beginPath()
+                                context.move(to:    CGPoint(x: p1.x + nx, y: p1.y + ny))
+                                context.addLine(to: CGPoint(x: p2.x + nx, y: p2.y + ny))
+                                context.strokePath()
+                            }
+
+                            // 曲線の縫い代（デフォルト縫い代幅を使用）
+                            let defaultSeamPt = canvasState.seamAllowance * 37.8 * pxToPt
+                            let steps = 60
+                            for curve in canvasState.curves {
+                                guard curve.nodes.count >= 2 else { continue }
+                                var offsetPts: [CGPoint] = []
+                                for i in 0..<curve.nodes.count - 1 {
+                                    let from = curve.nodes[i], to = curve.nodes[i + 1]
+                                    for j in 0...steps {
+                                        let t = CGFloat(j) / CGFloat(steps), mt = 1 - t
+                                        let raw = CGPoint(
+                                            x: mt*mt*mt*from.point.x + 3*mt*mt*t*from.controlPoint2.x + 3*mt*t*t*to.controlPoint1.x + t*t*t*to.point.x,
+                                            y: mt*mt*mt*from.point.y + 3*mt*mt*t*from.controlPoint2.y + 3*mt*t*t*to.controlPoint1.y + t*t*t*to.point.y
+                                        )
+                                        let pg = toPage(raw)
+                                        if offsetPts.isEmpty {
+                                            offsetPts.append(pg)
+                                        } else {
+                                            let prev = offsetPts.last!
+                                            let sdx = pg.x - prev.x, sdy = pg.y - prev.y
+                                            let slen = sqrt(sdx*sdx + sdy*sdy)
+                                            guard slen > 0 else { continue }
+                                            // Y軸反転に合わせて法線方向を反転
+                                            offsetPts.append(CGPoint(
+                                                x: pg.x + ( sdy / slen * defaultSeamPt),
+                                                y: pg.y + (-sdx / slen * defaultSeamPt)
+                                            ))
+                                        }
+                                    }
+                                }
+                                guard offsetPts.count >= 2 else { continue }
+                                context.beginPath()
+                                context.move(to: offsetPts[0])
+                                offsetPts.dropFirst().forEach { context.addLine(to: $0) }
+                                context.strokePath()
+                            }
+                            context.restoreGState()
+                        }
+
+                        // ─── 仕上がり線（直線）───
+                        context.setStrokeColor(NSColor.black.cgColor)
+                        context.setLineWidth(0.5)
+                        for line in canvasState.lines {
+                            guard lineIntersectsPage(line) else { continue }
+                            let p1 = toPage(line.startPoint)
+                            let p2 = toPage(line.endPoint)
+                            context.beginPath()
+                            context.move(to: p1); context.addLine(to: p2)
+                            context.strokePath()
+                        }
+
+                        // ─── 仕上がり線（曲線）───
+                        for curve in canvasState.curves {
+                            guard curve.nodes.count >= 2 else { continue }
+                            context.beginPath()
+                            context.move(to: toPage(curve.nodes[0].point))
+                            for i in 0..<curve.nodes.count - 1 {
+                                let from = curve.nodes[i], to = curve.nodes[i + 1]
+                                context.addCurve(
+                                    to: toPage(to.point),
+                                    control1: toPage(from.controlPoint2),
+                                    control2: toPage(to.controlPoint1)
+                                )
+                            }
+                            context.strokePath()
+                        }
+
+                        // ─── 円弧 ───
+                        for arc in canvasState.arcs {
+                            let c = toPage(arc.center)
+                            let r = arc.radius * pxToPt
+                            let startRad = -arc.startAngle * .pi / 180
+                            let endRad   = -arc.endAngle   * .pi / 180
+                            context.beginPath()
+                            context.addArc(center: c, radius: r,
+                                           startAngle: startRad, endAngle: endRad,
+                                           clockwise: false)
+                            context.setStrokeColor(NSColor.black.cgColor)
+                            context.setLineWidth(0.5)
+                            context.strokePath()
+                        }
+
+                        // ─── 点と名前（このページの範囲内のみ）───
+                        for point in canvasState.points {
+                            guard point.position.x >= pageMinXpx && point.position.x < pageMaxXpx &&
+                                  point.position.y >= pageMinYpx && point.position.y < pageMaxYpx
+                            else { continue }
+                            let p = toPage(point.position)
+                            context.setFillColor(NSColor.black.cgColor)
+                            context.fillEllipse(in: CGRect(x: p.x-1.5, y: p.y-1.5, width: 3, height: 3))
+                            let attrs: [NSAttributedString.Key: Any] = [
+                                .font: NSFont.systemFont(ofSize: 6),
+                                .foregroundColor: NSColor.black
+                            ]
+                            let ctLine = CTLineCreateWithAttributedString(
+                                NSAttributedString(string: point.name, attributes: attrs))
+                            context.textPosition = CGPoint(x: p.x + 3, y: p.y + 3)
+                            CTLineDraw(ctLine, context)
+                        }
+
+                        // ─── テキスト（このページの範囲内のみ）───
+                        for annotation in canvasState.texts {
+                            guard annotation.position.x >= pageMinXpx && annotation.position.x < pageMaxXpx &&
+                                  annotation.position.y >= pageMinYpx && annotation.position.y < pageMaxYpx
+                            else { continue }
+                            let p = toPage(annotation.position)
+                            let attrs: [NSAttributedString.Key: Any] = [
+                                .font: NSFont.systemFont(ofSize: annotation.fontSize * pxToPt),
+                                .foregroundColor: NSColor.black
+                            ]
+                            let ctLine = CTLineCreateWithAttributedString(
+                                NSAttributedString(string: annotation.text, attributes: attrs))
+                            context.textPosition = p
+                            CTLineDraw(ctLine, context)
+                        }
+
+                        // ─── 寸法ラベル（中点がこのページにある線のみ）───
+                        for line in canvasState.lines {
+                            guard lineIntersectsPage(line) else { continue }
+                            let mid = CGPoint(
+                                x: (line.startPoint.x + line.endPoint.x) / 2,
+                                y: (line.startPoint.y + line.endPoint.y) / 2
+                            )
+                            guard mid.x >= pageMinXpx && mid.x < pageMaxXpx &&
+                                  mid.y >= pageMinYpx && mid.y < pageMaxYpx
+                            else { continue }
+                            let midPt = toPage(mid)
+                            let attrs: [NSAttributedString.Key: Any] = [
+                                .font: NSFont.systemFont(ofSize: 8),
+                                .foregroundColor: NSColor.darkGray
+                            ]
+                            let ctLine = CTLineCreateWithAttributedString(
+                                NSAttributedString(
+                                    string: String(format: "%.1fcm", line.lengthCm),
+                                    attributes: attrs))
+                            context.textPosition = CGPoint(x: midPt.x + 2, y: midPt.y + 4)
+                            CTLineDraw(ctLine, context)
+                        }
+
+                        context.restoreGState()
+
+                        // ─── トンボ ───
+                        drawCropMarks(context: context, pageWidth: paperPtW, pageHeight: paperPtH)
+
+                        // ─── のりしろ境界線（グレー破線）───
+                        context.setStrokeColor(NSColor.lightGray.cgColor)
+                        context.setLineWidth(0.3)
+                        context.setLineDash(phase: 0, lengths: [3, 3])
+                        if col < cols - 1 {
+                            let x = paperPtW - margin - overlap
+                            context.beginPath()
+                            context.move(to: CGPoint(x: x, y: margin))
+                            context.addLine(to: CGPoint(x: x, y: paperPtH - margin))
+                            context.strokePath()
+                        }
+                        if row < rows - 1 {
+                            let y = margin + overlap
+                            context.beginPath()
+                            context.move(to: CGPoint(x: margin, y: y))
+                            context.addLine(to: CGPoint(x: paperPtW - margin, y: y))
+                            context.strokePath()
+                        }
+                        context.setLineDash(phase: 0, lengths: [])
+
+                        // ─── ページ番号 ───
+                        let label = "\(canvasState.paperSize.rawValue)  \(pageIndex) / \(totalPages)  (列\(col+1)-行\(row+1))"
+                        let labelAttrs: [NSAttributedString.Key: Any] = [
+                            .font: NSFont.systemFont(ofSize: 7),
+                            .foregroundColor: NSColor.darkGray
+                        ]
+                        let ctLine = CTLineCreateWithAttributedString(
+                            NSAttributedString(string: label, attributes: labelAttrs))
+                        context.textPosition = CGPoint(x: paperPtW - margin - 80, y: 10)
+                        CTLineDraw(ctLine, context)
+
+                        context.endPDFPage()
+                    }
+                }
+
+                context.closePDF()
                 DispatchQueue.global(qos: .userInitiated).async {
-                    let data = buildPDF(canvasState: canvasState, mode: mode)
-                    try? data.write(to: url)
-                    print("PDF保存成功: \(url)")
+                    try? (pdfData as Data).write(to: url)
+                    print("PDF保存成功: \(url) (\(totalPages)ページ / \(canvasState.paperSize.rawValue))")
                 }
             }
         }
     }
 
-    // MARK: - PDF構築（A4複数ページ分割）
-    static func buildPDF(canvasState: CanvasState, mode: PDFOutputMode) -> Data {
-        // 1cm = 28.35pt
-        let pxToPt: CGFloat = 28.35 / 37.8
-        let margin: CGFloat = 28.35       // 1cm余白
-        let overlap: CGFloat = 14.175     // 0.5cm のりしろ（貼り合わせ用）
-
-        // A4ページサイズ（pt）
-        let pageW: CGFloat = 595.28
-        let pageH: CGFloat = 841.89
-        let drawW = pageW - margin * 2   // 描画可能幅
-        let drawH = pageH - margin * 2   // 描画可能高さ
-
-        // パターン全体のバウンディングボックスを計算
-        var allPoints: [CGPoint] = []
-        canvasState.points.forEach { allPoints.append($0.position) }
-        canvasState.lines.forEach { allPoints.append($0.startPoint); allPoints.append($0.endPoint) }
-        canvasState.curves.forEach { $0.nodes.forEach { allPoints.append($0.point) } }
-        canvasState.arcs.forEach {
-            allPoints.append(CGPoint(x: $0.center.x - $0.radius, y: $0.center.y - $0.radius))
-            allPoints.append(CGPoint(x: $0.center.x + $0.radius, y: $0.center.y + $0.radius))
-        }
-
-        guard !allPoints.isEmpty else {
-            // 空の場合は白紙1ページ
-            return buildEmptyPDF(pageW: pageW, pageH: pageH)
-        }
-
-        let minX = allPoints.map { $0.x }.min()! - 37.8  // 1cm余裕
-        let minY = allPoints.map { $0.y }.min()! - 37.8
-        let maxX = allPoints.map { $0.x }.max()! + 37.8
-        let maxY = allPoints.map { $0.y }.max()! + 37.8
-        let patternW = (maxX - minX) * pxToPt
-        let patternH = (maxY - minY) * pxToPt
-
-        // 何ページ必要か計算（のりしろ考慮）
-        let effectiveW = drawW - overlap
-        let effectiveH = drawH - overlap
-        let cols = Int(ceil(patternW / effectiveW))
-        let rows = Int(ceil(patternH / effectiveH))
-
-        let pdfData = NSMutableData()
-        var mediaBox = CGRect(x: 0, y: 0, width: pageW, height: pageH)
-        guard let consumer = CGDataConsumer(data: pdfData),
-              let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
-            return Data()
-        }
-
-        // 座標変換：px → pt、Y軸反転
-        func toPage(_ p: CGPoint, offsetX: CGFloat, offsetY: CGFloat) -> CGPoint {
-            CGPoint(
-                x: margin + (p.x - minX) * pxToPt - offsetX,
-                y: pageH - margin - (p.y - minY) * pxToPt + offsetY
-            )
-        }
-
-        for row in 0..<rows {
-            for col in 0..<cols {
-                let offsetX = CGFloat(col) * effectiveW
-                let offsetY = CGFloat(row) * effectiveH
-
-                context.beginPDFPage(nil)
-
-                // 白背景
-                context.setFillColor(NSColor.white.cgColor)
-                context.fill(CGRect(x: 0, y: 0, width: pageW, height: pageH))
-
-                // クリップ領域（余白内）
-                context.saveGState()
-                context.clip(to: CGRect(x: margin - overlap/2, y: margin - overlap/2,
-                                       width: drawW + overlap, height: drawH + overlap))
-
-                // 線を描画
-                drawLines(context: context, canvasState: canvasState,
-                         mode: mode, pxToPt: pxToPt, toPage: { toPage($0, offsetX: offsetX, offsetY: offsetY) })
-
-                // 曲線を描画
-                drawCurves(context: context, canvasState: canvasState,
-                          pxToPt: pxToPt, toPage: { toPage($0, offsetX: offsetX, offsetY: offsetY) })
-
-                // 円弧を描画
-                drawArcs(context: context, canvasState: canvasState,
-                        pxToPt: pxToPt, toPage: { toPage($0, offsetX: offsetX, offsetY: offsetY) })
-
-                // ノッチを描画
-                drawNotches(context: context, canvasState: canvasState,
-                           pxToPt: pxToPt, toPage: { toPage($0, offsetX: offsetX, offsetY: offsetY) })
-
-                // 点と名前を描画
-                drawPoints(context: context, canvasState: canvasState,
-                          toPage: { toPage($0, offsetX: offsetX, offsetY: offsetY) })
-
-                // テキストを描画
-                drawTexts(context: context, canvasState: canvasState,
-                         pxToPt: pxToPt, toPage: { toPage($0, offsetX: offsetX, offsetY: offsetY) })
-
-                context.restoreGState()
-
-                // ページ枠線
-                context.setStrokeColor(NSColor.lightGray.cgColor)
-                context.setLineWidth(0.5)
-                context.stroke(CGRect(x: margin, y: margin, width: drawW, height: drawH))
-
-                // のりしろ線（破線）
-                context.setStrokeColor(NSColor.gray.cgColor)
-                context.setLineDash(phase: 0, lengths: [4, 4])
-                context.setLineWidth(0.3)
-                let glueRect = CGRect(x: margin - overlap/2, y: margin - overlap/2,
-                                     width: drawW + overlap, height: drawH + overlap)
-                context.stroke(glueRect)
-                context.setLineDash(phase: 0, lengths: [])
-
-                // ページ番号とページ位置
-                let pageNum = row * cols + col + 1
-                let totalPages = rows * cols
-                let pageLabel = "P\(pageNum)/\(totalPages)  [\(col+1)-\(row+1)]"
-                drawText(context: context, text: pageLabel,
-                        at: CGPoint(x: margin + 4, y: margin + 4), fontSize: 7)
-
-                // スケールバー（各ページ右下）
-                drawScaleBar(context: context, pageW: pageW, pageH: pageH, margin: margin)
-
-                context.endPDFPage()
-            }
-        }
-
-        context.closePDF()
-        return pdfData as Data
-    }
-
-    // MARK: - 線の描画
-    private static func drawLines(context: CGContext, canvasState: CanvasState,
-                                  mode: PDFOutputMode, pxToPt: CGFloat,
-                                  toPage: (CGPoint) -> CGPoint) {
+    private static func drawCropMarks(context: CGContext, pageWidth: CGFloat, pageHeight: CGFloat) {
         context.setStrokeColor(NSColor.black.cgColor)
-        context.setLineWidth(0.5)
-
-        for line in canvasState.lines {
-            let p1 = toPage(line.startPoint)
-            let p2 = toPage(line.endPoint)
-            context.beginPath()
-            context.move(to: p1)
-            context.addLine(to: p2)
-            context.strokePath()
-
-            // 寸法表示
-            let mid = CGPoint(x: (p1.x + p2.x) / 2 + 2, y: (p1.y + p2.y) / 2 + 2)
-            drawText(context: context, text: String(format: "%.1fcm", line.lengthCm),
-                    at: mid, fontSize: 5, color: NSColor.gray)
-        }
-
-        // 縫い代込みモード
-        if mode == .withSeam {
-            context.setStrokeColor(NSColor.red.withAlphaComponent(0.6).cgColor)
-            context.setLineWidth(0.3)
-            let dash: [CGFloat] = [3, 3]
-            context.setLineDash(phase: 0, lengths: dash)
-
-            for line in canvasState.lines {
-                let width = canvasState.seamWidth(for: line.id)
-                let dx = line.endPoint.x - line.startPoint.x
-                let dy = line.endPoint.y - line.startPoint.y
-                let len = sqrt(dx*dx + dy*dy)
-                guard len > 0 else { continue }
-                let nx = -dy / len * width * 37.8 * pxToPt
-                let ny =  dx / len * width * 37.8 * pxToPt
-                // Y軸が反転しているのでnyの符号を反転
-                let sp1 = toPage(line.startPoint)
-                let sp2 = toPage(line.endPoint)
-                let op1 = CGPoint(x: sp1.x + nx, y: sp1.y - ny)
-                let op2 = CGPoint(x: sp2.x + nx, y: sp2.y - ny)
-                context.beginPath()
-                context.move(to: op1)
-                context.addLine(to: op2)
-                context.strokePath()
-            }
-            context.setLineDash(phase: 0, lengths: [])
-        }
-    }
-
-    // MARK: - 曲線の描画
-    private static func drawCurves(context: CGContext, canvasState: CanvasState,
-                                   pxToPt: CGFloat, toPage: (CGPoint) -> CGPoint) {
-        context.setStrokeColor(NSColor.black.cgColor)
-        context.setLineWidth(0.5)
-        for curve in canvasState.curves {
-            guard curve.nodes.count >= 2 else { continue }
-            context.beginPath()
-            context.move(to: toPage(curve.nodes[0].point))
-            for i in 0..<curve.nodes.count - 1 {
-                let from = curve.nodes[i], to = curve.nodes[i+1]
-                context.addCurve(to: toPage(to.point),
-                                control1: toPage(from.controlPoint2),
-                                control2: toPage(to.controlPoint1))
-            }
-            context.strokePath()
-        }
-    }
-
-    // MARK: - 円弧の描画
-    private static func drawArcs(context: CGContext, canvasState: CanvasState,
-                                 pxToPt: CGFloat, toPage: (CGPoint) -> CGPoint) {
-        context.setStrokeColor(NSColor.black.cgColor)
-        context.setLineWidth(0.5)
-        for arc in canvasState.arcs {
-            let center = toPage(arc.center)
-            let radius = arc.radius * pxToPt
-            context.beginPath()
-            context.addArc(center: center, radius: radius,
-                          startAngle: arc.startAngle * .pi / 180,
-                          endAngle: arc.endAngle * .pi / 180,
-                          clockwise: true)
-            context.strokePath()
-        }
-    }
-
-    // MARK: - ノッチの描画
-    private static func drawNotches(context: CGContext, canvasState: CanvasState,
-                                    pxToPt: CGFloat, toPage: (CGPoint) -> CGPoint) {
-        context.setFillColor(NSColor.black.cgColor)
-        for notch in canvasState.notches {
-            guard let line = canvasState.lines.first(where: { $0.id == notch.lineID }) else { continue }
-            let pos = CGPoint(
-                x: line.startPoint.x + (line.endPoint.x - line.startPoint.x) * notch.t,
-                y: line.startPoint.y + (line.endPoint.y - line.startPoint.y) * notch.t
-            )
-            let screenPos = toPage(pos)
-            let dx = line.endPoint.x - line.startPoint.x
-            let dy = line.endPoint.y - line.startPoint.y
-            let len = sqrt(dx*dx + dy*dy)
-            guard len > 0 else { continue }
-            let nx = -dy / len
-            let ny =  dx / len
-            let tx = dx / len
-            let ty = dy / len
-            let s = notch.size * pxToPt * 1.5
-            // 逆三角形
-            var path = CGMutablePath()
-            path.move(to: screenPos)
-            path.addLine(to: CGPoint(x: screenPos.x + nx*s - tx*s*0.6,
-                                    y: screenPos.y - ny*s + ty*s*0.6))
-            path.addLine(to: CGPoint(x: screenPos.x + nx*s + tx*s*0.6,
-                                    y: screenPos.y - ny*s - ty*s*0.6))
-            path.closeSubpath()
-            context.addPath(path)
-            context.fillPath()
-        }
-    }
-
-    // MARK: - 点の描画
-    private static func drawPoints(context: CGContext, canvasState: CanvasState,
-                                   toPage: (CGPoint) -> CGPoint) {
-        context.setFillColor(NSColor.black.cgColor)
-        for point in canvasState.points {
-            let p = toPage(point.position)
-            context.fillEllipse(in: CGRect(x: p.x - 1, y: p.y - 1, width: 2, height: 2))
-            drawText(context: context, text: point.name,
-                    at: CGPoint(x: p.x + 2, y: p.y + 2), fontSize: 6)
-        }
-    }
-
-    // MARK: - テキストの描画
-    private static func drawTexts(context: CGContext, canvasState: CanvasState,
-                                  pxToPt: CGFloat, toPage: (CGPoint) -> CGPoint) {
-        for annotation in canvasState.texts {
-            let p = toPage(annotation.position)
-            drawText(context: context, text: annotation.text,
-                    at: p, fontSize: annotation.fontSize * pxToPt)
-        }
-    }
-
-    // MARK: - スケールバー
-    private static func drawScaleBar(context: CGContext, pageW: CGFloat, pageH: CGFloat, margin: CGFloat) {
-        let barLength: CGFloat = 28.35 * 5  // 5cm = 141.75pt
-        let x = pageW - margin - barLength
-        let y = margin + 10
-        context.setStrokeColor(NSColor.black.cgColor)
-        context.setLineWidth(1)
-        context.beginPath()
-        context.move(to: CGPoint(x: x, y: y))
-        context.addLine(to: CGPoint(x: x + barLength, y: y))
-        context.move(to: CGPoint(x: x, y: y - 3))
-        context.addLine(to: CGPoint(x: x, y: y + 3))
-        context.move(to: CGPoint(x: x + barLength, y: y - 3))
-        context.addLine(to: CGPoint(x: x + barLength, y: y + 3))
-        context.strokePath()
-        drawText(context: context, text: "5cm",
-                at: CGPoint(x: x + barLength/2 - 8, y: y + 5), fontSize: 7)
-    }
-
-    // MARK: - テキスト描画ヘルパー
-    private static func drawText(context: CGContext, text: String, at point: CGPoint,
-                                 fontSize: CGFloat, color: NSColor = .black) {
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: fontSize),
-            .foregroundColor: color
+        context.setLineWidth(0.3)
+        let mark: CGFloat = 10
+        let corners: [(CGPoint, CGPoint, CGPoint)] = [
+            (CGPoint(x: margin,             y: pageHeight - margin),
+             CGPoint(x: margin - mark,      y: pageHeight - margin),
+             CGPoint(x: margin,             y: pageHeight - margin + mark)),
+            (CGPoint(x: pageWidth - margin, y: pageHeight - margin),
+             CGPoint(x: pageWidth - margin + mark, y: pageHeight - margin),
+             CGPoint(x: pageWidth - margin, y: pageHeight - margin + mark)),
+            (CGPoint(x: margin,             y: margin),
+             CGPoint(x: margin - mark,      y: margin),
+             CGPoint(x: margin,             y: margin - mark)),
+            (CGPoint(x: pageWidth - margin, y: margin),
+             CGPoint(x: pageWidth - margin + mark, y: margin),
+             CGPoint(x: pageWidth - margin, y: margin - mark))
         ]
-        let str = NSAttributedString(string: text, attributes: attrs)
-        let line = CTLineCreateWithAttributedString(str)
-        context.textPosition = point
-        CTLineDraw(line, context)
-    }
-
-    // MARK: - 空PDF
-    private static func buildEmptyPDF(pageW: CGFloat, pageH: CGFloat) -> Data {
-        let data = NSMutableData()
-        var box = CGRect(x: 0, y: 0, width: pageW, height: pageH)
-        guard let consumer = CGDataConsumer(data: data),
-              let ctx = CGContext(consumer: consumer, mediaBox: &box, nil) else { return Data() }
-        ctx.beginPDFPage(nil)
-        ctx.endPDFPage()
-        ctx.closePDF()
-        return data as Data
+        for (corner, h, v) in corners {
+            context.beginPath(); context.move(to: corner); context.addLine(to: h); context.strokePath()
+            context.beginPath(); context.move(to: corner); context.addLine(to: v); context.strokePath()
+        }
     }
 }

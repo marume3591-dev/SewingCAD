@@ -27,13 +27,14 @@ struct ContentView: View {
     @State private var selectedArcID: UUID? = nil
     @State private var isArcEdited: Bool = false
     @State private var originalArc: ArcData? = nil
-    @State private var pdfOutputMode: PDFOutputMode = .finishedLine
+    @State private var pdfOutputMode: PDFOutputMode = .finishOnly
     @State private var resetOffsetTrigger: Bool = false
 
     // フェーズ2用パネル参照（CanvasViewの状態をミラー）
     @State private var gradingPointForPanel: PatternPoint? = nil
     @State private var seamOverrideLineForPanel: PatternLine? = nil
 
+    
     var body: some View {
         VStack(spacing: 0) {
             // 上ツールバー
@@ -86,7 +87,13 @@ struct ContentView: View {
                     .font(.system(size: 12)).foregroundColor(.secondary)
                 Divider().frame(height: 24)
                 Button(action: {
-                    PDFExporter.export(canvasState: canvasState, scale: scale, mode: pdfOutputMode)
+                    print("pdfOutputMode: \(pdfOutputMode)")  // ← 追加
+                    print("withSeamAllowance: \(pdfOutputMode == .withSeamAllowance)")  // ← 追加
+                    PDFExporter.export(
+                        canvasState: canvasState,
+                        scale: scale,
+                        includeSeamAllowance: pdfOutputMode == .withSeamAllowance
+                    )
                 }) {
                     Label("PDF出力", systemImage: "doc.richtext")
                 }

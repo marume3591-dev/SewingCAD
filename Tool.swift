@@ -26,3 +26,8 @@ enum Tool {
     case seamOverride  // 縫い代個別設定
     case grading       // グレーディング
 }
+
+enum PDFOutputMode: String, CaseIterable {
+    case finishOnly = "仕上がり線のみ"
+    case withSeamAllowance = "縫い代込み"
+}
