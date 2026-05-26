@@ -174,13 +174,16 @@ class CanvasState: ObservableObject {
 
     func toPatternData() -> PatternData {
         let savedPoints = points.map { SavedPoint(id: $0.id, x: $0.position.x, y: $0.position.y, name: $0.name) }
-        let savedLines  = lines.map  { SavedLine(x1: $0.startPoint.x, y1: $0.startPoint.y, x2: $0.endPoint.x, y2: $0.endPoint.y) }
+        let savedLines  = lines.map  { SavedLine(x1: $0.startPoint.x, y1: $0.startPoint.y, x2: $0.endPoint.x, y2: $0.endPoint.y,
+                                                 label: $0.label ) }
         let savedCurves = curves.map { curve in
             SavedCurve(nodes: curve.nodes.map {
                 SavedCurveNode(x: $0.point.x, y: $0.point.y,
                                cp1x: $0.controlPoint1.x, cp1y: $0.controlPoint1.y,
                                cp2x: $0.controlPoint2.x, cp2y: $0.controlPoint2.y)
-            })
+            },
+            label: curve.label
+            )
         }
         let savedArcs   = arcs.map  { SavedArc(cx: $0.center.x, cy: $0.center.y, radius: $0.radius, startAngle: $0.startAngle, endAngle: $0.endAngle) }
         let savedTexts  = texts.map { SavedText(x: $0.position.x, y: $0.position.y, text: $0.text, fontSize: $0.fontSize) }
@@ -197,13 +200,16 @@ class CanvasState: ObservableObject {
 
     func load(from data: PatternData) {
         points = data.points.map { PatternPoint(position: CGPoint(x: $0.x, y: $0.y), name: $0.name) }
-        lines  = data.lines.map  { PatternLine(startPoint: CGPoint(x: $0.x1, y: $0.y1), endPoint: CGPoint(x: $0.x2, y: $0.y2)) }
+        lines  = data.lines.map  { PatternLine(startPoint: CGPoint(x: $0.x1, y: $0.y1), endPoint: CGPoint(x: $0.x2, y: $0.y2),
+                                               label: $0.label) }
         curves = data.curves.map { savedCurve in
             CurveData(nodes: savedCurve.nodes.map {
                 CurveNode(point: CGPoint(x: $0.x, y: $0.y),
                           controlPoint1: CGPoint(x: $0.cp1x, y: $0.cp1y),
                           controlPoint2: CGPoint(x: $0.cp2x, y: $0.cp2y))
-            })
+            },
+            label: savedCurve.label
+            )
         }
         arcs   = data.arcs.map  { ArcData(center: CGPoint(x: $0.cx, y: $0.cy), radius: $0.radius, startAngle: $0.startAngle, endAngle: $0.endAngle) }
         texts  = data.texts.map { TextAnnotation(position: CGPoint(x: $0.x, y: $0.y), text: $0.text, fontSize: $0.fontSize) }
@@ -236,4 +242,5 @@ struct CurveData: Identifiable {
     let id = UUID()
     var nodes: [CurveNode]
     var isSelected: Bool = false
+    var label: String = ""
 }

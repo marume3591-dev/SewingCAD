@@ -9,6 +9,7 @@ struct PatternLine: Identifiable, Equatable {
     let id = UUID()
     var startPoint: CGPoint
     var endPoint: CGPoint
+    var label: String = "" 
 
     // 長さ（px）
     var length: CGFloat {

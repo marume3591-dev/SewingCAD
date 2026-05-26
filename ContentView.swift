@@ -8,6 +8,7 @@ import CoreData
 
 struct ContentView: View {
     @StateObject private var canvasState = CanvasState()
+    @ObservedObject private var projectManager = ProjectManager.shared
     @State private var currentTool: Tool = .addPoint
     @State private var selectedPoint: PatternPoint? = nil
     @State private var selectedLine: PatternLine? = nil
@@ -17,6 +18,7 @@ struct ContentView: View {
     @State private var scale: CGFloat = 0.3
     @State private var showMeasurements = false
     @State private var showSettings = false
+    @State private var showProject = false
     @State private var duplicateNameAlert = false
     @State private var originalLine: PatternLine? = nil
     @State private var editingAngle: String = ""
@@ -30,44 +32,70 @@ struct ContentView: View {
     @State private var pdfOutputMode: PDFOutputMode = .finishOnly
     @State private var resetOffsetTrigger: Bool = false
 
-    // フェーズ2用パネル参照（CanvasViewの状態をミラー）
     @State private var gradingPointForPanel: PatternPoint? = nil
     @State private var seamOverrideLineForPanel: PatternLine? = nil
 
-    
     var body: some View {
         VStack(spacing: 0) {
             // 上ツールバー
             HStack(spacing: 12) {
+                // プロジェクトボタン
+                Button(action: { showProject.toggle() }) {
+                    Label("プロジェクト", systemImage: "folder.fill")
+                }
+                .background(showProject ? Color.accentColor.opacity(0.2) : Color.clear)
+                .cornerRadius(6)
+
+                Divider().frame(height: 24)
+
                 Button(action: {
                     canvasState.reset()
                     selectedPoint = nil; selectedLine = nil
                     statusMessage = "新規パターンを作成しました"
                 }) { Label("New", systemImage: "doc") }
-                Button(action: { PatternDocument.save(canvasState.toPatternData()) }) {
+                Button(action: {
+                    // プロジェクトモード中は自動的にパーツ保存
+                    if let id = projectManager.activePartID {
+                        projectManager.savePatternData(canvasState.toPatternData(), for: id)
+                        projectManager.saveProject()
+                        statusMessage = "プロジェクトを保存しました"
+                    } else {
+                        PatternDocument.save(canvasState.toPatternData())
+                    }
+                }) {
                     Label("Save", systemImage: "square.and.arrow.down")
                 }
                 Button(action: {
                     PatternDocument.load { data in
                         guard let data = data else { return }
                         canvasState.load(from: data)
-                        selectedPoint = nil; selectedLine = nil; statusMessage = "読み込みました"
+                        selectedPoint = nil; selectedLine = nil
+                        statusMessage = "読み込みました"
                     }
                 }) { Label("Open", systemImage: "folder") }
+
                 Divider().frame(height: 24)
+
                 Button(action: {
                     canvasState.undo(); selectedPoint = nil
-                    if let id = selectedLine?.id { selectedLine = canvasState.lines.first(where: { $0.id == id }) }
+                    if let id = selectedLine?.id {
+                        selectedLine = canvasState.lines.first(where: { $0.id == id })
+                    }
                     isLineEdited = false; statusMessage = "元に戻しました"
                 }) { Label("Undo", systemImage: "arrow.uturn.backward") }
                 .disabled(!canvasState.canUndo)
+
                 Button(action: {
                     canvasState.redo(); selectedPoint = nil
-                    if let id = selectedLine?.id { selectedLine = canvasState.lines.first(where: { $0.id == id }) }
+                    if let id = selectedLine?.id {
+                        selectedLine = canvasState.lines.first(where: { $0.id == id })
+                    }
                     isLineEdited = false; statusMessage = "やり直しました"
                 }) { Label("Redo", systemImage: "arrow.uturn.forward") }
                 .disabled(!canvasState.canRedo)
+
                 Divider().frame(height: 24)
+
                 Button(action: {
                     scale = min(scale * 1.25, 10.0)
                     statusMessage = String(format: "ズーム: %.0f%%", scale * 100)
@@ -79,24 +107,23 @@ struct ContentView: View {
                 Button(action: {
                     resetOffsetTrigger.toggle()
                     statusMessage = "原点に戻りました"
-                }) {
-                    Label("原点", systemImage: "house")
-                }
+                }) { Label("原点", systemImage: "house") }
+
                 Divider().frame(height: 24)
+
                 Text(String(format: "%.0f%%", scale * 100))
                     .font(.system(size: 12)).foregroundColor(.secondary)
+
                 Divider().frame(height: 24)
+
                 Button(action: {
-                    print("pdfOutputMode: \(pdfOutputMode)")  // ← 追加
-                    print("withSeamAllowance: \(pdfOutputMode == .withSeamAllowance)")  // ← 追加
                     PDFExporter.export(
                         canvasState: canvasState,
                         scale: scale,
                         includeSeamAllowance: pdfOutputMode == .withSeamAllowance
                     )
-                }) {
-                    Label("PDF出力", systemImage: "doc.richtext")
-                }
+                }) { Label("PDF出力", systemImage: "doc.richtext") }
+
                 Picker("", selection: $pdfOutputMode) {
                     ForEach(PDFOutputMode.allCases, id: \.self) { mode in
                         Text(mode.rawValue).tag(mode)
@@ -104,16 +131,30 @@ struct ContentView: View {
                 }
                 .pickerStyle(.segmented)
                 .frame(width: 200)
+
                 Button(action: {
                     DXFExporter.export(canvasState: canvasState)
+                }) { Label("DXF出力", systemImage: "square.and.arrow.up") }
+                
+                Button(action: {
+                    TiledPDFExporter.export(canvasState: canvasState)
                 }) {
-                    Label("DXF出力", systemImage: "square.and.arrow.up")
+                    Label("実寸印刷", systemImage: "printer")
                 }
                 Divider().frame(height: 24)
-                Button(action: { showMeasurements.toggle() }) { Label("計測", systemImage: "ruler") }
-                    .background(showMeasurements ? Color.accentColor.opacity(0.2) : Color.clear).cornerRadius(6)
-                Button(action: { showSettings.toggle() }) { Label("設定", systemImage: "gearshape") }
-                    .background(showSettings ? Color.accentColor.opacity(0.2) : Color.clear).cornerRadius(6)
+
+                Button(action: { showMeasurements.toggle() }) {
+                    Label("計測", systemImage: "ruler")
+                }
+                .background(showMeasurements ? Color.accentColor.opacity(0.2) : Color.clear)
+                .cornerRadius(6)
+
+                Button(action: { showSettings.toggle() }) {
+                    Label("設定", systemImage: "gearshape")
+                }
+                .background(showSettings ? Color.accentColor.opacity(0.2) : Color.clear)
+                .cornerRadius(6)
+
                 Spacer()
             }
             .padding(.horizontal, 12).padding(.vertical, 6)
@@ -122,36 +163,43 @@ struct ContentView: View {
             Divider()
 
             HStack(spacing: 0) {
+
+                // プロジェクトパネル（左端）
+                if showProject {
+                    ProjectPanelView(
+                        projectManager: projectManager,
+                        canvasState: canvasState
+                    )
+                    Divider()
+                }
+
                 // 左ツールバー
                 ScrollView {
                     VStack(spacing: 4) {
-                        // 基本ツール
                         toolSectionLabel("基本")
-                        ToolButton(icon: "arrow.up.left.and.arrow.down.right", label: "選択",   tool: .select,        currentTool: $currentTool)
-                        ToolButton(icon: "circle.fill",                         label: "点",     tool: .addPoint,      currentTool: $currentTool)
-                        ToolButton(icon: "line.diagonal",                       label: "線",     tool: .addLine,       currentTool: $currentTool)
-                        ToolButton(icon: "scribble",                            label: "曲線",   tool: .addCurve,      currentTool: $currentTool)
-                        ToolButton(icon: "trash",                               label: "削除",   tool: .delete,        currentTool: $currentTool)
-                        ToolButton(icon: "selection.pin.in.out",                label: "範囲",   tool: .groupSelect,   currentTool: $currentTool)
+                        ToolButton(icon: "arrow.up.left.and.arrow.down.right", label: "選択",    tool: .select,        currentTool: $currentTool)
+                        ToolButton(icon: "circle.fill",                         label: "点",      tool: .addPoint,      currentTool: $currentTool)
+                        ToolButton(icon: "line.diagonal",                       label: "線",      tool: .addLine,       currentTool: $currentTool)
+                        ToolButton(icon: "scribble",                            label: "曲線",    tool: .addCurve,      currentTool: $currentTool)
+                        ToolButton(icon: "trash",                               label: "削除",    tool: .delete,        currentTool: $currentTool)
+                        ToolButton(icon: "selection.pin.in.out",                label: "範囲",    tool: .groupSelect,   currentTool: $currentTool)
 
                         Divider().padding(.vertical, 2)
-                        // 作図補助
                         toolSectionLabel("作図")
-                        ToolButton(icon: "arrow.left.and.right",                label: "平行",   tool: .parallel,      currentTool: $currentTool)
-                        ToolButton(icon: "arrow.up.and.down",                   label: "垂直",   tool: .perpendicular, currentTool: $currentTool)
-                        ToolButton(icon: "arrow.right.to.line",                 label: "延長",   tool: .extend,        currentTool: $currentTool)
-                        ToolButton(icon: "circle.dotted",                       label: "中点",   tool: .midpoint,      currentTool: $currentTool)
-                        ToolButton(icon: "circle",                              label: "円弧",   tool: .arc,           currentTool: $currentTool)
+                        ToolButton(icon: "arrow.left.and.right",                label: "平行",    tool: .parallel,      currentTool: $currentTool)
+                        ToolButton(icon: "arrow.up.and.down",                   label: "垂直",    tool: .perpendicular, currentTool: $currentTool)
+                        ToolButton(icon: "arrow.right.to.line",                 label: "延長",    tool: .extend,        currentTool: $currentTool)
+                        ToolButton(icon: "circle.dotted",                       label: "中点",    tool: .midpoint,      currentTool: $currentTool)
+                        ToolButton(icon: "circle",                              label: "円弧",    tool: .arc,           currentTool: $currentTool)
                         ToolButton(icon: "text.cursor",                         label: "テキスト", tool: .text,         currentTool: $currentTool)
 
                         Divider().padding(.vertical, 2)
-                        // フェーズ2
                         toolSectionLabel("パターン")
-                        ToolButton(icon: "rectangle.lefthalf.inset.filled",     label: "鏡像",    tool: .mirror,       currentTool: $currentTool)
-                        ToolButton(icon: "minus.circle",                         label: "ノッチ",  tool: .notch,        currentTool: $currentTool)
-                        ToolButton(icon: "arrow.left.and.right.square",          label: "縫い代",  tool: .seamOverride, currentTool: $currentTool)
-                        ToolButton(icon: "square.3.layers.3d",                   label: "グレード", tool: .grading,     currentTool: $currentTool)
-                        ToolButton(icon: "ruler.fill",                          label: "寸法入力", tool: .lineInput,    currentTool: $currentTool)
+                        ToolButton(icon: "rectangle.lefthalf.inset.filled",     label: "鏡像",    tool: .mirror,        currentTool: $currentTool)
+                        ToolButton(icon: "minus.circle",                        label: "ノッチ",   tool: .notch,        currentTool: $currentTool)
+                        ToolButton(icon: "arrow.left.and.right.square",         label: "縫い代",   tool: .seamOverride, currentTool: $currentTool)
+                        ToolButton(icon: "square.3.layers.3d",                  label: "グレード", tool: .grading,       currentTool: $currentTool)
+                        ToolButton(icon: "ruler.fill",                          label: "寸法入力", tool: .lineInput,     currentTool: $currentTool)
                         ToolButton(icon: "point.topleft.down.curvedto.point.bottomright.up", label: "交点", tool: .intersection, currentTool: $currentTool)
 
                         Spacer()
@@ -176,12 +224,14 @@ struct ContentView: View {
                     selectedArcID: $selectedArcID,
                     gradingPointOut: $gradingPointForPanel,
                     seamOverrideLineOut: $seamOverrideLineForPanel,
-                    resetOffsetTrigger: $resetOffsetTrigger
+                    resetOffsetTrigger: $resetOffsetTrigger,
+                    projectManager: projectManager
                 )
                 .clipped()
                 .onChange(of: selectedPoint) { _, _ in duplicateNameAlert = false }
                 .onChange(of: selectedLine?.id) { _, newID in
-                    if let newID = newID, let line = canvasState.lines.first(where: { $0.id == newID }) {
+                    if let newID = newID,
+                       let line = canvasState.lines.first(where: { $0.id == newID }) {
                         originalLine = line
                         isSettingInitialValues = true
                         editingAngle = String(format: "%.1f", line.angle)
@@ -192,9 +242,12 @@ struct ContentView: View {
                     }
                 }
                 .onChange(of: selectedArcID) { _, newID in
-                    if let newID = newID, let arc = canvasState.arcs.first(where: { $0.id == newID }) {
+                    if let newID = newID,
+                       let arc = canvasState.arcs.first(where: { $0.id == newID }) {
                         originalArc = arc; isArcEdited = false
-                    } else { originalArc = nil; isArcEdited = false }
+                    } else {
+                        originalArc = nil; isArcEdited = false
+                    }
                 }
 
                 // リサイズハンドル
@@ -212,6 +265,21 @@ struct ContentView: View {
                 HStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Tool options").font(.headline).padding(.bottom, 4)
+
+                        // プロジェクトモード時：アクティブパーツ名を表示
+                        if let project = projectManager.currentProject,
+                           let activeID = projectManager.activePartID,
+                           let part = project.parts.first(where: { $0.id == activeID }) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "doc.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.accentColor)
+                                Text(part.name)
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(.accentColor)
+                            }
+                            .padding(.bottom, 4)
+                        }
 
                         if selectedPoint != nil {
                             pointPanel
@@ -239,8 +307,10 @@ struct ContentView: View {
                     if showMeasurements {
                         Divider()
                         MeasurementView()
-                            .environment(\.managedObjectContext, PersistenceController.shared.container.viewContext)
-                            .frame(width: 280).background(Color(NSColor.windowBackgroundColor))
+                            .environment(\.managedObjectContext,
+                                         PersistenceController.shared.container.viewContext)
+                            .frame(width: 280)
+                            .background(Color(NSColor.windowBackgroundColor))
                     }
                     if showSettings {
                         Divider()
@@ -254,14 +324,64 @@ struct ContentView: View {
 
             // ステータスバー
             HStack {
+                // プロジェクトモード時：パーツ切り替えインジケーター
+                if let project = projectManager.currentProject {
+                    HStack(spacing: 6) {
+                        ForEach(project.parts) { part in
+                            Button(action: {
+                                switchToPart(part)
+                            }) {
+                                Text(part.name)
+                                    .font(.system(size: 11))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 2)
+                                    .background(
+                                        projectManager.activePartID == part.id
+                                        ? Color.accentColor
+                                        : Color.gray.opacity(0.2)
+                                    )
+                                    .foregroundColor(
+                                        projectManager.activePartID == part.id
+                                        ? .white : .primary
+                                    )
+                                    .cornerRadius(4)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        Divider().frame(height: 16)
+                    }
+                }
+
                 Text(statusMessage).font(.system(size: 12)).foregroundColor(.secondary)
                 Spacer()
-                Text(String(format: "X: %.1f  Y: %.1f (cm)", mousePosition.x / 37.8, mousePosition.y / 37.8))
+                Text(String(format: "X: %.1f  Y: %.1f (cm)",
+                            mousePosition.x / 37.8, mousePosition.y / 37.8))
                     .font(.system(size: 12)).foregroundColor(.secondary)
             }
             .padding(.horizontal, 12).padding(.vertical, 4)
             .background(Color(NSColor.windowBackgroundColor))
         }
+    }
+
+    // MARK: - パーツ切り替え
+    private func switchToPart(_ part: PatternPart) {
+        guard projectManager.activePartID != part.id else { return }
+        // 現在のパーツを自動保存
+        if let currentID = projectManager.activePartID {
+            projectManager.savePatternData(canvasState.toPatternData(), for: currentID)
+        }
+        projectManager.activePartID = part.id
+        selectedPoint = nil
+        selectedLine = nil
+        selectedCurveID = nil
+        selectedArcID = nil
+        // 新しいパーツを読み込み
+        if let data = projectManager.loadPatternData(for: part.id) {
+            canvasState.load(from: data)
+        } else {
+            canvasState.reset()
+        }
+        statusMessage = "\(part.name) を表示中"
     }
 
     // MARK: - ツールラベル
@@ -289,7 +409,9 @@ struct ContentView: View {
                             if let idx = canvasState.seamOverrides.firstIndex(where: { $0.lineID == line.id }) {
                                 canvasState.seamOverrides[idx].width = CGFloat(v)
                             } else {
-                                canvasState.seamOverrides.append(SeamAllowanceOverride(lineID: line.id, width: CGFloat(v), side: .both))
+                                canvasState.seamOverrides.append(
+                                    SeamAllowanceOverride(lineID: line.id, width: CGFloat(v), side: .both)
+                                )
                             }
                         }
                     }
@@ -388,6 +510,27 @@ struct ContentView: View {
             Text("曲線").font(.headline).padding(.bottom, 4)
             Text("ノード数: \(curve.nodes.count)").font(.system(size: 13))
             Text(String(format: "概算長さ: %.2f cm", curveLength(curve))).font(.system(size: 13))
+            // ラベル入力
+            HStack {
+                Text("ラベル:").font(.system(size: 13))
+                TextField("例：前AH", text: Binding(
+                    get: {
+                        canvasState.curves.first(where: { $0.id == curve.id })?.label ?? ""
+                    },
+                    set: { newLabel in
+                        if let index = canvasState.curves.firstIndex(where: { $0.id == curve.id }) {
+                            canvasState.curves[index].label = newLabel
+                        }
+                    }
+                ))
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 13))
+            }
+            Button("ラベル確定") {
+                canvasState.saveSnapshot()
+            }
+            .buttonStyle(.bordered)
+            .font(.system(size: 12))
             Text("コントロールポイントを\nドラッグで形を編集")
                 .font(.system(size: 11)).foregroundColor(.secondary)
         }
@@ -418,7 +561,9 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func arcField(_ label: String, arcID: UUID, keyPath: WritableKeyPath<ArcData, CGFloat>, unit: String, scale: CGFloat) -> some View {
+    private func arcField(_ label: String, arcID: UUID,
+                          keyPath: WritableKeyPath<ArcData, CGFloat>,
+                          unit: String, scale: CGFloat) -> some View {
         HStack {
             Text(label).font(.system(size: 13))
             TextField("", text: Binding(
@@ -439,7 +584,8 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func arcAngleField(_ label: String, arcID: UUID, keyPath: WritableKeyPath<ArcData, CGFloat>) -> some View {
+    private func arcAngleField(_ label: String, arcID: UUID,
+                               keyPath: WritableKeyPath<ArcData, CGFloat>) -> some View {
         HStack {
             Text(label).font(.system(size: 13))
             TextField("", text: Binding(
@@ -462,6 +608,22 @@ struct ContentView: View {
     // MARK: - 右パネル：線
     @ViewBuilder
     private var linePanel: some View {
+        HStack {
+            Text("ラベル:").font(.system(size: 13))
+            TextField("例：後AH", text: Binding(
+                get: {
+                    canvasState.lines.first(where: { $0.id == selectedLine?.id })?.label ?? ""
+                },
+                set: { newLabel in
+                    if let id = selectedLine?.id,
+                       let index = canvasState.lines.firstIndex(where: { $0.id == id }) {
+                        canvasState.lines[index].label = newLabel
+                    }
+                }
+            ))
+            .textFieldStyle(.roundedBorder)
+            .font(.system(size: 13))
+        }
         VStack(alignment: .leading, spacing: 8) {
             Text("線").font(.headline).padding(.bottom, 4)
             Text(String(format: "長さ: %.2f cm", selectedLine?.lengthCm ?? 0)).font(.system(size: 13))
@@ -488,17 +650,21 @@ struct ContentView: View {
             HStack {
                 Button("確定") {
                     canvasState.saveSnapshot()
-                    if let id = selectedLine?.id, let line = canvasState.lines.first(where: { $0.id == id }) {
+                    if let id = selectedLine?.id,
+                       let line = canvasState.lines.first(where: { $0.id == id }) {
                         originalLine = line
                     }
                     isLineEdited = false
                 }.buttonStyle(.borderedProminent).font(.system(size: 12)).disabled(!isLineEdited)
+
                 Button("キャンセル") {
                     if let original = originalLine,
                        let index = canvasState.lines.firstIndex(where: { $0.id == original.id }) {
                         let currentEnd = canvasState.lines[index].endPoint
                         canvasState.lines[index] = original; selectedLine = original
-                        if let pi = canvasState.points.firstIndex(where: { calcDistance($0.position, currentEnd) < 1.0 }) {
+                        if let pi = canvasState.points.firstIndex(where: {
+                            calcDistance($0.position, currentEnd) < 1.0
+                        }) {
                             canvasState.points[pi].position = original.endPoint
                         }
                         isSettingInitialValues = true
@@ -507,6 +673,7 @@ struct ContentView: View {
                         isLineEdited = false; isSettingInitialValues = false
                     }
                 }.buttonStyle(.bordered).font(.system(size: 12)).disabled(!isLineEdited)
+
                 Button("起点と終点を入れ替え") {
                     if let id = selectedLine?.id,
                        let index = canvasState.lines.firstIndex(where: { $0.id == id }) {

@@ -18,8 +18,17 @@ struct PatternData: Codable {
 }
 
 struct SavedPoint: Codable { var id: UUID; var x: CGFloat; var y: CGFloat; var name: String }
-struct SavedLine: Codable { var x1: CGFloat; var y1: CGFloat; var x2: CGFloat; var y2: CGFloat }
-struct SavedCurve: Codable { var nodes: [SavedCurveNode] }
+struct SavedLine: Codable {
+    var x1: CGFloat
+    var y1: CGFloat
+    var x2: CGFloat
+    var y2: CGFloat
+    var label: String = ""          // ← 追加
+}
+struct SavedCurve: Codable {
+    var nodes: [SavedCurveNode]
+    var label: String = ""          // ← 追加
+}
 struct SavedCurveNode: Codable { var x: CGFloat; var y: CGFloat; var cp1x: CGFloat; var cp1y: CGFloat; var cp2x: CGFloat; var cp2y: CGFloat }
 struct SavedArc: Codable { var cx: CGFloat; var cy: CGFloat; var radius: CGFloat; var startAngle: CGFloat; var endAngle: CGFloat }
 struct SavedText: Codable { var x: CGFloat; var y: CGFloat; var text: String; var fontSize: CGFloat }
