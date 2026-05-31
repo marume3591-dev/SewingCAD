@@ -290,6 +290,7 @@ struct PartRowView: View {
     let onSelect: () -> Void
     let onDelete: () -> Void
     @State private var isHovered = false
+    @State private var showDeleteConfirm = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -306,13 +307,19 @@ struct PartRowView: View {
                     .foregroundColor(isActive ? .white.opacity(0.8) : .secondary)
             }
             Spacer()
-            if isHovered && !isActive {
-                Button(action: onDelete) {
+            if isHovered || showDeleteConfirm {
+                Button(action: { showDeleteConfirm = true }) {
                     Image(systemName: "trash")
                         .font(.system(size: 10))
-                        .foregroundColor(.red)
+                        .foregroundColor(isActive ? .white.opacity(0.8) : .red)
                 }
                 .buttonStyle(.plain)
+                .alert("パーツを削除", isPresented: $showDeleteConfirm) {
+                    Button("削除", role: .destructive) { onDelete() }
+                    Button("キャンセル", role: .cancel) {}
+                } message: {
+                    Text("「\(part.name)」を削除しますか？")
+                }
             }
         }
         .padding(.horizontal, 8)

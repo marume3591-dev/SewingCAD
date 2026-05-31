@@ -19,6 +19,7 @@ struct ContentView: View {
     @State private var showMeasurements = false
     @State private var showSettings = false
     @State private var showProject = false
+    @State private var showSloperGenerator = false
     @State private var duplicateNameAlert = false
     @State private var originalLine: PatternLine? = nil
     @State private var editingAngle: String = ""
@@ -115,7 +116,16 @@ struct ContentView: View {
                     .font(.system(size: 12)).foregroundColor(.secondary)
 
                 Divider().frame(height: 24)
-
+                Button(action: { showSloperGenerator = true }) {
+                    Label("原型生成", systemImage: "wand.and.stars")
+                }
+                Divider().frame(height: 24)
+                Button(action: {
+                    Preview3DWindowController.shared.open(canvasState: canvasState, projectManager: projectManager)
+                }) {
+                    Label("3Dプレビュー", systemImage: "cube.transparent")
+                }
+                Divider().frame(height: 24)
                 Button(action: {
                     PDFExporter.export(
                         canvasState: canvasState,
@@ -248,6 +258,18 @@ struct ContentView: View {
                     } else {
                         originalArc = nil; isArcEdited = false
                     }
+                }
+                .sheet(isPresented: $showSloperGenerator) {
+                    SloperGeneratorView(
+                        projectManager: projectManager,
+                        onGenerate: { result in
+                            showSloperGenerator = false
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                applySloperResult(result)
+                            }
+                        },
+                        onCancel: { showSloperGenerator = false }
+                    )
                 }
 
                 // リサイズハンドル
@@ -738,6 +760,67 @@ struct ContentView: View {
     private func calcDistance(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
         let dx = a.x - b.x, dy = a.y - b.y
         return sqrt(dx * dx + dy * dy)
+    }
+
+    // MARK: - 原型生成結果をプロジェクトに適用
+
+    private func applySloperResult(_ result: SloperResult) {
+        if projectManager.currentProject == nil {
+            // プロジェクト未作成の場合は非同期で作成してから適用（デッドロック防止）
+            projectManager.newProject(name: "原型") { success in
+                guard success else {
+                    DispatchQueue.main.async {
+                        self.statusMessage = "プロジェクトの作成に失敗しました"
+                    }
+                    return
+                }
+                DispatchQueue.main.async {
+                    self.applySloperToCurrentProject(result)
+                }
+            }
+        } else {
+            applySloperToCurrentProject(result)
+        }
+    }
+
+    private func applySloperToCurrentProject(_ result: SloperResult) {
+        // 既存の原型パーツを削除（再生成時に増えないよう上書き）
+        let sloperTypes: Set<PatternPartType> = [
+            .bodiceBack, .bodiceFront, .sleeveFront, .skirtBack, .skirtFront
+        ]
+        let existingIDs = projectManager.currentProject?.parts
+            .filter { sloperTypes.contains($0.type) }
+            .map { $0.id } ?? []
+        for id in existingIDs {
+            projectManager.removePart(id: id)
+        }
+
+        // 新しいパーツを追加
+        let parts: [(PatternData, PatternPartType, String)] = [
+            (result.bodiceBack,  .bodiceBack,  "後身頃"),
+            (result.bodiceFront, .bodiceFront, "前身頃"),
+            (result.sleeve,      .sleeveFront, "袖"),
+            (result.skirtBack,   .skirtBack,   "後スカート"),
+            (result.skirtFront,  .skirtFront,  "前スカート"),
+        ]
+
+        var firstPartID: UUID? = nil
+        for (data, type, name) in parts {
+            guard !data.lines.isEmpty || !data.curves.isEmpty else { continue }
+            let part = projectManager.addPart(name: name, type: type)
+            projectManager.savePatternData(data, for: part.id)
+            if firstPartID == nil { firstPartID = part.id }
+        }
+
+        // 最初のパーツをアクティブにしてキャンバスに表示
+        if let id = firstPartID {
+            projectManager.activePartID = id
+            if let data = projectManager.loadPatternData(for: id) {
+                canvasState.load(from: data)
+            }
+        }
+
+        statusMessage = "原型を生成しました。各パーツをパネルから選択して確認・補正してください"
     }
 }
 
