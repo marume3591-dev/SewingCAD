@@ -16,7 +16,6 @@ struct ContentView: View {
     @State private var mousePosition: CGPoint = .zero
     @State private var statusMessage: String = "点を追加するにはキャンバスをクリックしてください"
     @State private var scale: CGFloat = 0.3
-    @State private var showMeasurements = false
     @State private var showSettings = false
     @State private var showProject = false
     @State private var showSloperGenerator = false
@@ -32,154 +31,175 @@ struct ContentView: View {
     @State private var originalArc: ArcData? = nil
     @State private var pdfOutputMode: PDFOutputMode = .finishOnly
     @State private var resetOffsetTrigger: Bool = false
-
     @State private var gradingPointForPanel: PatternPoint? = nil
     @State private var seamOverrideLineForPanel: PatternLine? = nil
+    @State private var show3DBody: Bool = false
+    @State private var toolbarHint: String = ""
 
     var body: some View {
         VStack(spacing: 0) {
-            // 上ツールバー
-            HStack(spacing: 12) {
-                // プロジェクトボタン
-                Button(action: { showProject.toggle() }) {
-                    Label("プロジェクト", systemImage: "folder.fill")
-                }
-                .background(showProject ? Color.accentColor.opacity(0.2) : Color.clear)
-                .cornerRadius(6)
+            // ── ツールバー ──
+            HStack(spacing: 4) {
 
-                Divider().frame(height: 24)
-
-                Button(action: {
-                    canvasState.reset()
-                    selectedPoint = nil; selectedLine = nil
-                    statusMessage = "新規パターンを作成しました"
-                }) { Label("New", systemImage: "doc") }
-                Button(action: {
-                    // プロジェクトモード中は自動的にパーツ保存
-                    if let id = projectManager.activePartID {
-                        projectManager.savePatternData(canvasState.toPatternData(), for: id)
-                        projectManager.saveProject()
-                        statusMessage = "プロジェクトを保存しました"
-                    } else {
-                        PatternDocument.save(canvasState.toPatternData())
+                // ═══ 左：操作系 ═══
+                Group {
+                    tbBtn("doc",                    tip: "新規") {
+                        canvasState.reset(); selectedPoint = nil; selectedLine = nil
+                        statusMessage = "新規パターンを作成しました"
                     }
-                }) {
-                    Label("Save", systemImage: "square.and.arrow.down")
-                }
-                Button(action: {
-                    PatternDocument.load { data in
-                        guard let data = data else { return }
-                        canvasState.load(from: data)
-                        selectedPoint = nil; selectedLine = nil
-                        statusMessage = "読み込みました"
+                    tbBtn("square.and.arrow.down",  tip: "保存") {
+                        if let id = projectManager.activePartID {
+                            projectManager.savePatternData(canvasState.toPatternData(), for: id)
+                            projectManager.saveProject()
+                            statusMessage = "プロジェクトを保存しました"
+                        } else {
+                            PatternDocument.save(canvasState.toPatternData())
+                        }
                     }
-                }) { Label("Open", systemImage: "folder") }
-
-                Divider().frame(height: 24)
-
-                Button(action: {
-                    canvasState.undo(); selectedPoint = nil
-                    if let id = selectedLine?.id {
-                        selectedLine = canvasState.lines.first(where: { $0.id == id })
-                    }
-                    isLineEdited = false; statusMessage = "元に戻しました"
-                }) { Label("Undo", systemImage: "arrow.uturn.backward") }
-                .disabled(!canvasState.canUndo)
-
-                Button(action: {
-                    canvasState.redo(); selectedPoint = nil
-                    if let id = selectedLine?.id {
-                        selectedLine = canvasState.lines.first(where: { $0.id == id })
-                    }
-                    isLineEdited = false; statusMessage = "やり直しました"
-                }) { Label("Redo", systemImage: "arrow.uturn.forward") }
-                .disabled(!canvasState.canRedo)
-
-                Divider().frame(height: 24)
-
-                Button(action: {
-                    scale = min(scale * 1.25, 10.0)
-                    statusMessage = String(format: "ズーム: %.0f%%", scale * 100)
-                }) { Label("Zoom In", systemImage: "plus.magnifyingglass") }
-                Button(action: {
-                    scale = max(scale * 0.8, 0.1)
-                    statusMessage = String(format: "ズーム: %.0f%%", scale * 100)
-                }) { Label("Zoom Out", systemImage: "minus.magnifyingglass") }
-                Button(action: {
-                    resetOffsetTrigger.toggle()
-                    statusMessage = "原点に戻りました"
-                }) { Label("原点", systemImage: "house") }
-
-                Divider().frame(height: 24)
-
-                Text(String(format: "%.0f%%", scale * 100))
-                    .font(.system(size: 12)).foregroundColor(.secondary)
-
-                Divider().frame(height: 24)
-                Button(action: { showSloperGenerator = true }) {
-                    Label("原型生成", systemImage: "wand.and.stars")
-                }
-                Divider().frame(height: 24)
-                Button(action: {
-                    Preview3DWindowController.shared.open(canvasState: canvasState, projectManager: projectManager)
-                }) {
-                    Label("3Dプレビュー", systemImage: "cube.transparent")
-                }
-                Divider().frame(height: 24)
-                Button(action: {
-                    PDFExporter.export(
-                        canvasState: canvasState,
-                        scale: scale,
-                        includeSeamAllowance: pdfOutputMode == .withSeamAllowance
-                    )
-                }) { Label("PDF出力", systemImage: "doc.richtext") }
-
-                Picker("", selection: $pdfOutputMode) {
-                    ForEach(PDFOutputMode.allCases, id: \.self) { mode in
-                        Text(mode.rawValue).tag(mode)
+                    tbBtn("folder",                 tip: "開く") {
+                        projectManager.loadProject { success in
+                            guard success else { return }
+                            selectedPoint = nil; selectedLine = nil
+                            selectedCurveID = nil; selectedArcID = nil
+                            if let id = projectManager.activePartID {
+                                if let data = projectManager.loadPatternData(for: id) {
+                                    canvasState.load(from: data)
+                                } else {
+                                    canvasState.reset()
+                                }
+                                statusMessage = "プロジェクトを読み込みました"
+                            }
+                        }
                     }
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 200)
 
-                Button(action: {
-                    DXFExporter.export(canvasState: canvasState)
-                }) { Label("DXF出力", systemImage: "square.and.arrow.up") }
-                
-                Button(action: {
-                    TiledPDFExporter.export(canvasState: canvasState)
-                }) {
-                    Label("実寸印刷", systemImage: "printer")
-                }
-                Divider().frame(height: 24)
+                tbDivider()
 
-                Button(action: { showMeasurements.toggle() }) {
-                    Label("計測", systemImage: "ruler")
+                Group {
+                    tbBtn("arrow.uturn.backward",   tip: "元に戻す",   disabled: !canvasState.canUndo) {
+                        canvasState.undo(); selectedPoint = nil
+                        if let id = selectedLine?.id { selectedLine = canvasState.lines.first { $0.id == id } }
+                        isLineEdited = false; statusMessage = "元に戻しました"
+                    }
+                    tbBtn("arrow.uturn.forward",    tip: "やり直し",   disabled: !canvasState.canRedo) {
+                        canvasState.redo(); selectedPoint = nil
+                        if let id = selectedLine?.id { selectedLine = canvasState.lines.first { $0.id == id } }
+                        isLineEdited = false; statusMessage = "やり直しました"
+                    }
                 }
-                .background(showMeasurements ? Color.accentColor.opacity(0.2) : Color.clear)
-                .cornerRadius(6)
 
-                Button(action: { showSettings.toggle() }) {
-                    Label("設定", systemImage: "gearshape")
+                tbDivider()
+
+                Group {
+                    tbBtn("plus.magnifyingglass",   tip: "拡大") {
+                        scale = min(scale * 1.25, 10.0)
+                        statusMessage = String(format: "ズーム: %.0f%%", scale * 100)
+                    }
+                    tbBtn("minus.magnifyingglass",  tip: "縮小") {
+                        scale = max(scale * 0.8, 0.1)
+                        statusMessage = String(format: "ズーム: %.0f%%", scale * 100)
+                    }
+                    tbBtn("house",                  tip: "原点に戻る") {
+                        resetOffsetTrigger.toggle()
+                        statusMessage = "原点に戻りました"
+                    }
+
+                    Text(String(format: "%.0f%%", scale * 100))
+                        .font(.system(size: 11)).foregroundColor(.secondary)
+                        .frame(width: 36)
                 }
-                .background(showSettings ? Color.accentColor.opacity(0.2) : Color.clear)
-                .cornerRadius(6)
+
+                tbDivider()
+
+                // ═══ 右：作業フロー順 ═══
+                Group {
+                    tbBtn("folder.fill",            tip: "プロジェクト", active: showProject) {
+                        showProject.toggle()
+                    }
+                    tbBtn("ruler",                  tip: "計測テーブル") {
+                        MeasurementWindowController.shared.open()
+                    }
+                }
+
+                tbDivider()
+
+                Group {
+                    tbBtn("wand.and.stars",         tip: "原型生成") {
+                        showSloperGenerator = true
+                    }
+                }
+
+                tbDivider()
+
+                Group {
+                    tbBtn("cube.transparent",       tip: "3Dプレビュー") {
+                        Preview3DWindowController.shared.open(
+                            canvasState: canvasState, projectManager: projectManager)
+                    }
+                    tbBtn("person.fill",            tip: "3Dボディ", active: show3DBody) {
+                        show3DBody.toggle()
+                    }
+                }
+
+                tbDivider()
+
+                Group {
+                    tbBtn("doc.richtext",           tip: "PDF出力") {
+                        PDFExporter.export(
+                            canvasState: canvasState, scale: scale,
+                            includeSeamAllowance: pdfOutputMode == .withSeamAllowance)
+                    }
+                }
+
+                tbDivider()
+
+                // ═══ 「…」メニュー ═══
+                Menu {
+                    Button("DXF出力") { DXFExporter.export(canvasState: canvasState) }
+                    Button("実寸印刷") { TiledPDFExporter.export(canvasState: canvasState) }
+                    Divider()
+                    Picker("PDF出力モード", selection: $pdfOutputMode) {
+                        ForEach(PDFOutputMode.allCases, id: \.self) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
+                    Divider()
+                    Button("設定") { showSettings.toggle() }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.system(size: 15))
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .frame(width: 28)
+                .help("その他のメニュー")
 
                 Spacer()
             }
-            .padding(.horizontal, 12).padding(.vertical, 6)
+            .padding(.horizontal, 10).padding(.vertical, 5)
             .background(Color(NSColor.windowBackgroundColor))
+
+            // ヒント行（常に1行分確保・テキストだけ切り替え）
+            HStack {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 11))
+                    .foregroundColor(toolbarHint.isEmpty ? .clear : .secondary)
+                Text(toolbarHint.isEmpty ? " " : toolbarHint)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 3)
+            .background(Color(NSColor.controlBackgroundColor))
 
             Divider()
 
             HStack(spacing: 0) {
-
                 // プロジェクトパネル（左端）
                 if showProject {
-                    ProjectPanelView(
-                        projectManager: projectManager,
-                        canvasState: canvasState
-                    )
+                    ProjectPanelView(projectManager: projectManager, canvasState: canvasState)
                     Divider()
                 }
 
@@ -211,7 +231,6 @@ struct ContentView: View {
                         ToolButton(icon: "square.3.layers.3d",                  label: "グレード", tool: .grading,       currentTool: $currentTool)
                         ToolButton(icon: "ruler.fill",                          label: "寸法入力", tool: .lineInput,     currentTool: $currentTool)
                         ToolButton(icon: "point.topleft.down.curvedto.point.bottomright.up", label: "交点", tool: .intersection, currentTool: $currentTool)
-
                         Spacer()
                     }
                     .padding(4)
@@ -259,6 +278,16 @@ struct ContentView: View {
                         originalArc = nil; isArcEdited = false
                     }
                 }
+                .onChange(of: projectManager.activePartID) { _, newID in
+                    guard let id = newID else { return }
+                    selectedPoint = nil; selectedLine = nil
+                    selectedCurveID = nil; selectedArcID = nil
+                    if let data = projectManager.loadPatternData(for: id) {
+                        canvasState.load(from: data)
+                    } else {
+                        canvasState.reset()
+                    }
+                }
                 .sheet(isPresented: $showSloperGenerator) {
                     SloperGeneratorView(
                         projectManager: projectManager,
@@ -288,17 +317,14 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Tool options").font(.headline).padding(.bottom, 4)
 
-                        // プロジェクトモード時：アクティブパーツ名を表示
                         if let project = projectManager.currentProject,
                            let activeID = projectManager.activePartID,
                            let part = project.parts.first(where: { $0.id == activeID }) {
                             HStack(spacing: 4) {
                                 Image(systemName: "doc.fill")
-                                    .font(.system(size: 10))
-                                    .foregroundColor(.accentColor)
+                                    .font(.system(size: 10)).foregroundColor(.accentColor)
                                 Text(part.name)
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundColor(.accentColor)
+                                    .font(.system(size: 11, weight: .semibold)).foregroundColor(.accentColor)
                             }
                             .padding(.bottom, 4)
                         }
@@ -326,18 +352,16 @@ struct ContentView: View {
                     .padding(12).frame(width: rightPanelWidth)
                     .background(Color(NSColor.windowBackgroundColor))
 
-                    if showMeasurements {
-                        Divider()
-                        MeasurementView()
-                            .environment(\.managedObjectContext,
-                                         PersistenceController.shared.container.viewContext)
-                            .frame(width: 280)
-                            .background(Color(NSColor.windowBackgroundColor))
-                    }
                     if showSettings {
                         Divider()
                         SettingsView(canvasState: canvasState)
                             .background(Color(NSColor.windowBackgroundColor))
+                    }
+                    if show3DBody {
+                        Divider()
+                        Body3DPanel()
+                            .environment(\.managedObjectContext,
+                                         PersistenceController.shared.container.viewContext)
                     }
                 }
             }
@@ -346,26 +370,17 @@ struct ContentView: View {
 
             // ステータスバー
             HStack {
-                // プロジェクトモード時：パーツ切り替えインジケーター
                 if let project = projectManager.currentProject {
                     HStack(spacing: 6) {
                         ForEach(project.parts) { part in
-                            Button(action: {
-                                switchToPart(part)
-                            }) {
+                            Button(action: { switchToPart(part) }) {
                                 Text(part.name)
                                     .font(.system(size: 11))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 2)
-                                    .background(
-                                        projectManager.activePartID == part.id
-                                        ? Color.accentColor
-                                        : Color.gray.opacity(0.2)
-                                    )
-                                    .foregroundColor(
-                                        projectManager.activePartID == part.id
-                                        ? .white : .primary
-                                    )
+                                    .padding(.horizontal, 8).padding(.vertical, 2)
+                                    .background(projectManager.activePartID == part.id
+                                                ? Color.accentColor : Color.gray.opacity(0.2))
+                                    .foregroundColor(projectManager.activePartID == part.id
+                                                     ? .white : .primary)
                                     .cornerRadius(4)
                             }
                             .buttonStyle(.plain)
@@ -373,7 +388,6 @@ struct ContentView: View {
                         Divider().frame(height: 16)
                     }
                 }
-
                 Text(statusMessage).font(.system(size: 12)).foregroundColor(.secondary)
                 Spacer()
                 Text(String(format: "X: %.1f  Y: %.1f (cm)",
@@ -385,19 +399,37 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - ツールバーボタン生成ヘルパー
+
+    @ViewBuilder
+    private func tbBtn(_ icon: String, tip: String,
+                       active: Bool = false,
+                       disabled: Bool = false,
+                       action: @escaping () -> Void) -> some View {
+        QuickTooltipButton(action: action, tooltip: tip,
+                           isDisabled: disabled, hintText: $toolbarHint) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .frame(width: 26, height: 26)
+                .background(active ? Color.accentColor.opacity(0.2) : Color.clear)
+                .cornerRadius(5)
+        }
+    }
+
+    @ViewBuilder
+    private func tbDivider() -> some View {
+        Divider().frame(height: 20).padding(.horizontal, 2)
+    }
+
     // MARK: - パーツ切り替え
+
     private func switchToPart(_ part: PatternPart) {
         guard projectManager.activePartID != part.id else { return }
-        // 現在のパーツを自動保存
         if let currentID = projectManager.activePartID {
             projectManager.savePatternData(canvasState.toPatternData(), for: currentID)
         }
         projectManager.activePartID = part.id
-        selectedPoint = nil
-        selectedLine = nil
-        selectedCurveID = nil
-        selectedArcID = nil
-        // 新しいパーツを読み込み
+        selectedPoint = nil; selectedLine = nil; selectedCurveID = nil; selectedArcID = nil
         if let data = projectManager.loadPatternData(for: part.id) {
             canvasState.load(from: data)
         } else {
@@ -406,16 +438,15 @@ struct ContentView: View {
         statusMessage = "\(part.name) を表示中"
     }
 
-    // MARK: - ツールラベル
+    // MARK: - ツールセクションラベル
+
     @ViewBuilder
     private func toolSectionLabel(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 8))
-            .foregroundColor(.secondary)
-            .frame(maxWidth: .infinity)
+        Text(text).font(.system(size: 8)).foregroundColor(.secondary).frame(maxWidth: .infinity)
     }
 
-    // MARK: - 右パネル：縫い代個別設定
+    // MARK: - 右パネル：縫い代
+
     @ViewBuilder
     private func seamOverridePanel(_ line: PatternLine) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -432,8 +463,7 @@ struct ContentView: View {
                                 canvasState.seamOverrides[idx].width = CGFloat(v)
                             } else {
                                 canvasState.seamOverrides.append(
-                                    SeamAllowanceOverride(lineID: line.id, width: CGFloat(v), side: .both)
-                                )
+                                    SeamAllowanceOverride(lineID: line.id, width: CGFloat(v), side: .both))
                             }
                         }
                     }
@@ -445,7 +475,7 @@ struct ContentView: View {
                 canvasState.saveSnapshot()
                 statusMessage = "縫い代を設定しました"
             }.buttonStyle(.borderedProminent).font(.system(size: 12))
-            Button("リセット（デフォルトに戻す）") {
+            Button("リセット") {
                 canvasState.seamOverrides.removeAll { $0.lineID == line.id }
                 canvasState.saveSnapshot()
             }.buttonStyle(.bordered).font(.system(size: 11))
@@ -453,6 +483,7 @@ struct ContentView: View {
     }
 
     // MARK: - 右パネル：点
+
     @ViewBuilder
     private var pointPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -500,9 +531,7 @@ struct ContentView: View {
         HStack {
             Text(label).font(.system(size: 13))
             TextField("", text: Binding(
-                get: {
-                    String(format: "%.1f", (selectedPoint?.position[keyPath: keyPath] ?? 0) / 37.8)
-                },
+                get: { String(format: "%.1f", (selectedPoint?.position[keyPath: keyPath] ?? 0) / 37.8) },
                 set: { newValue in
                     if let v = Double(newValue),
                        let id = selectedPoint?.id,
@@ -526,39 +555,31 @@ struct ContentView: View {
     }
 
     // MARK: - 右パネル：曲線
+
     @ViewBuilder
     private func curvePanel(_ curve: CurveData) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("曲線").font(.headline).padding(.bottom, 4)
             Text("ノード数: \(curve.nodes.count)").font(.system(size: 13))
             Text(String(format: "概算長さ: %.2f cm", curveLength(curve))).font(.system(size: 13))
-            // ラベル入力
             HStack {
                 Text("ラベル:").font(.system(size: 13))
                 TextField("例：前AH", text: Binding(
-                    get: {
-                        canvasState.curves.first(where: { $0.id == curve.id })?.label ?? ""
-                    },
+                    get: { canvasState.curves.first(where: { $0.id == curve.id })?.label ?? "" },
                     set: { newLabel in
                         if let index = canvasState.curves.firstIndex(where: { $0.id == curve.id }) {
                             canvasState.curves[index].label = newLabel
                         }
                     }
-                ))
-                .textFieldStyle(.roundedBorder)
-                .font(.system(size: 13))
+                )).textFieldStyle(.roundedBorder).font(.system(size: 13))
             }
-            Button("ラベル確定") {
-                canvasState.saveSnapshot()
-            }
-            .buttonStyle(.bordered)
-            .font(.system(size: 12))
-            Text("コントロールポイントを\nドラッグで形を編集")
-                .font(.system(size: 11)).foregroundColor(.secondary)
+            Button("ラベル確定") { canvasState.saveSnapshot() }.buttonStyle(.bordered).font(.system(size: 12))
+            Text("コントロールポイントを\nドラッグで形を編集").font(.system(size: 11)).foregroundColor(.secondary)
         }
     }
 
     // MARK: - 右パネル：円弧
+
     @ViewBuilder
     private func arcPanel(_ arc: ArcData, arcID: UUID) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -628,23 +649,20 @@ struct ContentView: View {
     }
 
     // MARK: - 右パネル：線
+
     @ViewBuilder
     private var linePanel: some View {
         HStack {
             Text("ラベル:").font(.system(size: 13))
             TextField("例：後AH", text: Binding(
-                get: {
-                    canvasState.lines.first(where: { $0.id == selectedLine?.id })?.label ?? ""
-                },
+                get: { canvasState.lines.first(where: { $0.id == selectedLine?.id })?.label ?? "" },
                 set: { newLabel in
                     if let id = selectedLine?.id,
                        let index = canvasState.lines.firstIndex(where: { $0.id == id }) {
                         canvasState.lines[index].label = newLabel
                     }
                 }
-            ))
-            .textFieldStyle(.roundedBorder)
-            .font(.system(size: 13))
+            )).textFieldStyle(.roundedBorder).font(.system(size: 13))
         }
         VStack(alignment: .leading, spacing: 8) {
             Text("線").font(.headline).padding(.bottom, 4)
@@ -673,9 +691,7 @@ struct ContentView: View {
                 Button("確定") {
                     canvasState.saveSnapshot()
                     if let id = selectedLine?.id,
-                       let line = canvasState.lines.first(where: { $0.id == id }) {
-                        originalLine = line
-                    }
+                       let line = canvasState.lines.first(where: { $0.id == id }) { originalLine = line }
                     isLineEdited = false
                 }.buttonStyle(.borderedProminent).font(.system(size: 12)).disabled(!isLineEdited)
 
@@ -684,9 +700,7 @@ struct ContentView: View {
                        let index = canvasState.lines.firstIndex(where: { $0.id == original.id }) {
                         let currentEnd = canvasState.lines[index].endPoint
                         canvasState.lines[index] = original; selectedLine = original
-                        if let pi = canvasState.points.firstIndex(where: {
-                            calcDistance($0.position, currentEnd) < 1.0
-                        }) {
+                        if let pi = canvasState.points.firstIndex(where: { calcDistance($0.position, currentEnd) < 1.0 }) {
                             canvasState.points[pi].position = original.endPoint
                         }
                         isSettingInitialValues = true
@@ -696,7 +710,7 @@ struct ContentView: View {
                     }
                 }.buttonStyle(.bordered).font(.system(size: 12)).disabled(!isLineEdited)
 
-                Button("起点と終点を入れ替え") {
+                Button("起点⇄終点") {
                     if let id = selectedLine?.id,
                        let index = canvasState.lines.firstIndex(where: { $0.id == id }) {
                         let temp = canvasState.lines[index].startPoint
@@ -715,6 +729,7 @@ struct ContentView: View {
     }
 
     // MARK: - ユーティリティ
+
     private func applyAngle(_ newValue: String) {
         guard let angle = Double(newValue), let id = selectedLine?.id,
               let index = canvasState.lines.firstIndex(where: { $0.id == id }) else { return }
@@ -762,21 +777,16 @@ struct ContentView: View {
         return sqrt(dx * dx + dy * dy)
     }
 
-    // MARK: - 原型生成結果をプロジェクトに適用
+    // MARK: - 原型生成
 
     private func applySloperResult(_ result: SloperResult) {
         if projectManager.currentProject == nil {
-            // プロジェクト未作成の場合は非同期で作成してから適用（デッドロック防止）
             projectManager.newProject(name: "原型") { success in
                 guard success else {
-                    DispatchQueue.main.async {
-                        self.statusMessage = "プロジェクトの作成に失敗しました"
-                    }
+                    DispatchQueue.main.async { self.statusMessage = "プロジェクトの作成に失敗しました" }
                     return
                 }
-                DispatchQueue.main.async {
-                    self.applySloperToCurrentProject(result)
-                }
+                DispatchQueue.main.async { self.applySloperToCurrentProject(result) }
             }
         } else {
             applySloperToCurrentProject(result)
@@ -784,18 +794,10 @@ struct ContentView: View {
     }
 
     private func applySloperToCurrentProject(_ result: SloperResult) {
-        // 既存の原型パーツを削除（再生成時に増えないよう上書き）
-        let sloperTypes: Set<PatternPartType> = [
-            .bodiceBack, .bodiceFront, .sleeveFront, .skirtBack, .skirtFront
-        ]
-        let existingIDs = projectManager.currentProject?.parts
-            .filter { sloperTypes.contains($0.type) }
-            .map { $0.id } ?? []
-        for id in existingIDs {
-            projectManager.removePart(id: id)
-        }
+        let sloperTypes: Set<PatternPartType> = [.bodiceBack, .bodiceFront, .sleeveFront, .skirtBack, .skirtFront]
+        let existingIDs = projectManager.currentProject?.parts.filter { sloperTypes.contains($0.type) }.map { $0.id } ?? []
+        for id in existingIDs { projectManager.removePart(id: id) }
 
-        // 新しいパーツを追加
         let parts: [(PatternData, PatternPartType, String)] = [
             (result.bodiceBack,  .bodiceBack,  "後身頃"),
             (result.bodiceFront, .bodiceFront, "前身頃"),
@@ -803,7 +805,6 @@ struct ContentView: View {
             (result.skirtBack,   .skirtBack,   "後スカート"),
             (result.skirtFront,  .skirtFront,  "前スカート"),
         ]
-
         var firstPartID: UUID? = nil
         for (data, type, name) in parts {
             guard !data.lines.isEmpty || !data.curves.isEmpty else { continue }
@@ -811,18 +812,15 @@ struct ContentView: View {
             projectManager.savePatternData(data, for: part.id)
             if firstPartID == nil { firstPartID = part.id }
         }
-
-        // 最初のパーツをアクティブにしてキャンバスに表示
         if let id = firstPartID {
             projectManager.activePartID = id
-            if let data = projectManager.loadPatternData(for: id) {
-                canvasState.load(from: data)
-            }
+            if let data = projectManager.loadPatternData(for: id) { canvasState.load(from: data) }
         }
-
         statusMessage = "原型を生成しました。各パーツをパネルから選択して確認・補正してください"
     }
 }
+
+// MARK: - ToolButton
 
 struct ToolButton: View {
     let icon: String

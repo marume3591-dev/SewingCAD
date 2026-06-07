@@ -15,6 +15,7 @@ class CanvasNSView: NSView {
     var onDoubleClick: ((CGPoint) -> Void)?
     var onEnterKey: (() -> Void)?
     var onDeleteKey: (() -> Void)?
+    var onSelectAll: (() -> Void)?
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -67,6 +68,14 @@ class CanvasNSView: NSView {
         } else {
             super.keyDown(with: event)
         }
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "a" {
+            onSelectAll?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 
     override func updateTrackingAreas() {

@@ -1,12 +1,42 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="24837" systemVersion="25E253" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
-    <entity name="Measurement" representedClassName="Measurement" syncable="YES" codeGenerationType="class">
-        <attribute name="bust" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
-        <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
-        <attribute name="height" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
-        <attribute name="hip" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
-        <attribute name="name" optional="YES" attributeType="String"/>
-        <attribute name="note" optional="YES" attributeType="String"/>
-        <attribute name="waist" optional="YES" attributeType="Double" defaultValueString="0.0" usesScalarValueType="YES"/>
+<model type="com.apple.IDECoreDataModeler.DataModel"
+       documentVersion="1.0"
+       lastSavedToolsVersion="24837"
+       systemVersion="25E253"
+       minimumToolsVersion="Automatic"
+       sourceLanguage="Swift"
+       userDefinedModelVersionIdentifier="">
+
+    <entity name="MeasurementProfile"
+            representedClassName="MeasurementProfile"
+            syncable="YES"
+            codeGenerationType="class">
+        <attribute name="id"        optional="YES" attributeType="UUID"   usesScalarValueType="NO"/>
+        <attribute name="name"      optional="YES" attributeType="String"/>
+        <attribute name="note"      optional="YES" attributeType="String"/>
+        <attribute name="createdAt" optional="YES" attributeType="Date"   usesScalarValueType="NO"/>
+        <relationship name="entries"
+                      optional="YES"
+                      toMany="YES"
+                      deletionRule="Cascade"
+                      destinationEntity="MeasurementEntry"
+                      inverseName="profile"
+                      inverseEntity="MeasurementEntry"/>
     </entity>
+
+    <entity name="MeasurementEntry"
+            representedClassName="MeasurementEntry"
+            syncable="YES"
+            codeGenerationType="class">
+        <attribute name="fieldID" optional="YES" attributeType="Integer 16" defaultValueString="0"   usesScalarValueType="YES"/>
+        <attribute name="value"   optional="YES" attributeType="Double"     defaultValueString="0.0" usesScalarValueType="YES"/>
+        <relationship name="profile"
+                      optional="YES"
+                      maxCount="1"
+                      deletionRule="Nullify"
+                      destinationEntity="MeasurementProfile"
+                      inverseName="entries"
+                      inverseEntity="MeasurementProfile"/>
+    </entity>
+
 </model>

@@ -11,22 +11,20 @@ struct PersistenceController {
     @MainActor
     static let preview: PersistenceController = {
         let result = PersistenceController(inMemory: true)
-        let viewContext = result.container.viewContext
-        // プレビュー用サンプルデータ
-        let sample = Measurement(context: viewContext)
-        sample.name = "サンプル"
-        sample.height = 165
-        sample.bust = 90
-        sample.waist = 70
-        sample.hip = 95
-        sample.note = "サンプルデータ"
-        sample.createdAt = Date()
-        do {
-            try viewContext.save()
-        } catch {
-            let nsError = error as NSError
-            fatalError("Unresolved error \(nsError), \(nsError.userInfo)")
-        }
+        let ctx = result.container.viewContext
+
+        let p = MeasurementProfile(context: ctx)
+        p.id        = UUID()
+        p.name      = "サンプル"
+        p.note      = "サンプルデータ"
+        p.createdAt = Date()
+        p.setValue(158.0, for: 19)
+        p.setValue(83.0,  for: 1)
+        p.setValue(76.0,  for: 0)
+        p.setValue(64.0,  for: 3)
+        p.setValue(91.0,  for: 5)
+
+        try? ctx.save()
         return result
     }()
 
@@ -37,11 +35,11 @@ struct PersistenceController {
         if inMemory {
             container.persistentStoreDescriptions.first!.url = URL(fileURLWithPath: "/dev/null")
         }
-        container.loadPersistentStores(completionHandler: { (storeDescription, error) in
+        container.loadPersistentStores { _, error in
             if let error = error as NSError? {
-                fatalError("Unresolved error \(error), \(error.userInfo)")
+                fatalError("CoreData load error: \(error), \(error.userInfo)")
             }
-        })
+        }
         container.viewContext.automaticallyMergesChangesFromParent = true
     }
 }

@@ -10,14 +10,16 @@ enum PaperSize: String, CaseIterable {
     case a3 = "A3"
     case a2 = "A2"
     case a1 = "A1"
+    case a0 = "A0"
     case custom = "カスタム"
 
     var size: CGSize {
         switch self {
-        case .a4: return CGSize(width: 794, height: 1123)
+        case .a4: return CGSize(width: 794,  height: 1123)
         case .a3: return CGSize(width: 1123, height: 1587)
         case .a2: return CGSize(width: 1587, height: 2245)
         case .a1: return CGSize(width: 2245, height: 3175)
+        case .a0: return CGSize(width: 3175, height: 4490)
         case .custom: return CGSize(width: 794, height: 1123)
         }
     }
