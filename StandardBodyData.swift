@@ -2,7 +2,8 @@
 //  StandardBodyData.swift
 //  SewingCAD
 //
-//  改善版: 断面スライス数を14→26に増加、滑らかな体型曲線
+//  既存の26断面胴体に加え、腕（左右各9断面）・脚（左右各10断面）を追加。
+//  座標系: ウエスト(111cm地点)をY=0原点、メートル単位（1.0=100cm）
 //
 
 import Foundation
@@ -11,13 +12,23 @@ import simd
 // MARK: - 標準計測値
 
 struct StandardMeasurement {
-    var height:    Float = 158.0
-    var bust:      Float =  83.0
-    var waist:     Float =  64.0
-    var hip:       Float =  91.0
-    var shoulder:  Float =  38.0
-    var neck:      Float =  35.0
-    var underBust: Float =  72.0
+    var height:      Float = 158.0
+    var bust:        Float =  83.0
+    var waist:       Float =  64.0
+    var hip:         Float =  91.0
+    var shoulder:    Float =  38.0
+    var neck:        Float =  35.0
+    var underBust:   Float =  72.0
+    // 追加寸法（腕・脚・縦寸法）
+    var backLength:  Float =  38.8
+    var sleeveLen:   Float =  54.0
+    var upperArm:    Float =  27.0
+    var wrist:       Float =  15.5
+    var thigh:       Float =  52.0
+    var calf:        Float =  34.0
+    var inseam:      Float =  74.0
+    var waistHeight: Float =  98.0
+    var hipHeight:   Float =  85.0
 }
 
 // MARK: - 標準ボディ生成
@@ -26,70 +37,80 @@ enum StandardBodyGenerator {
 
     static let standard = StandardMeasurement()
 
-    static func generate() -> BodyMesh {
-        var vertices: [BodyVertex] = []
+    // ── メインエントリ ──────────────────────────────────────
+    static func generate(m: StandardMeasurement = StandardMeasurement()) -> BodyMesh {
+        var vertices: [BodyVertex]  = []
         var polygons:  [BodyPolygon] = []
+        var zones:     [DeformationZone] = []
 
-        // ---- 断面スライス（26断面 / 旧14断面から増加）----
-        // (地面からの高さcm, X半径cm, Z半径cm, 部位, 影響度)
+        buildTorso(m: m, vertices: &vertices, polygons: &polygons, zones: &zones)
+
+        for side: Float in [-1, 1] {
+            buildArm(m: m, side: side, vertices: &vertices, polygons: &polygons)
+        }
+        for side: Float in [-1, 1] {
+            buildLeg(m: m, side: side, vertices: &vertices, polygons: &polygons)
+        }
+
+        return BodyMesh(vertices: vertices, polygons: polygons, deformationZones: zones)
+    }
+
+    // 引数なし版（既存コードとの互換）
+    static func generate() -> BodyMesh {
+        generate(m: StandardMeasurement())
+    }
+
+    // ── 胴体（元の26断面をそのまま維持）─────────────────────
+    private static func buildTorso(
+        m: StandardMeasurement,
+        vertices: inout [BodyVertex],
+        polygons:  inout [BodyPolygon],
+        zones:     inout [DeformationZone]
+    ) {
+        // 元の26断面スライス定義（既存コードと同一）
         let slices: [(y: Float, rx: Float, rz: Float, region: BodyRegion, w: Float)] = [
-            // 頭頂
             (157, 9.5,  9.5,  .neutral,   0.05),
             (154, 9.0,  9.0,  .neutral,   0.05),
-            // 首
             (150, 6.5,  6.0,  .neck,      0.6),
             (147, 5.8,  5.5,  .neck,      0.8),
             (144, 5.5,  5.2,  .neck,      0.9),
-            // 肩〜胸上
             (141, 14.0, 7.5,  .shoulder,  0.8),
             (138, 19.0, 8.5,  .shoulder,  0.9),
             (135, 20.0, 10.0, .bust,      0.7),
             (132, 20.5, 11.5, .bust,      0.8),
-            // バスト
             (129, 20.8, 13.0, .bust,      0.95),
-            (126, 20.5, 13.5, .bust,      1.0),   // ← バスト最大
+            (126, 20.5, 13.5, .bust,      1.0),
             (123, 19.5, 12.5, .bust,      0.9),
-            // アンダーバスト
             (120, 18.0, 11.0, .underBust, 0.85),
             (117, 16.8, 10.5, .underBust, 0.7),
-            // ウエスト
             (114, 15.8, 10.2, .waist,     0.9),
-            (111, 15.5, 10.0, .waist,     1.0),   // ← ウエスト最細
+            (111, 15.5, 10.0, .waist,     1.0),
             (108, 15.5, 10.0, .waist,     1.0),
-            // 腹部
             (105, 16.5, 11.0, .abdomen,   0.75),
             (102, 17.5, 11.8, .abdomen,   0.7),
-            //  ヒップ
             ( 99, 20.0, 12.5, .hip,       0.85),
-            ( 96, 22.5, 13.2, .hip,       1.0),   // ← ヒップ最大
+            ( 96, 22.5, 13.2, .hip,       1.0),
             ( 93, 22.0, 12.8, .hip,       0.95),
             ( 90, 21.0, 12.2, .hip,       0.85),
-            // 太もも
             ( 86, 17.5, 10.5, .leg,       0.5),
             ( 82, 15.5,  9.5, .leg,       0.4),
-            // 股下
             ( 76, 14.0,  8.5, .leg,       0.3),
         ]
 
-        let ringSegments = 24   // 旧16→24に増加（滑らかな断面）
+        let ringSegments = 24
         let totalRings   = slices.count
+        let baseIndex    = 0
 
-        // ---- 頂点生成 ----
         for (si, slice) in slices.enumerated() {
-            let yM   = (slice.y - 111.0) / 100.0   // ウエスト(111cm)を原点に
+            let yM   = (slice.y - 111.0) / 100.0
             let rxM  = slice.rx / 100.0
             let rzM  = slice.rz / 100.0
             let uRow = Float(si) / Float(totalRings - 1)
-
             for vi in 0..<ringSegments {
                 let angle = 2 * Float.pi * Float(vi) / Float(ringSegments)
-                let x  =  cos(angle) * rxM
-                let z  =  sin(angle) * rzM
-                let nx =  cos(angle)
-                let nz =  sin(angle)
                 vertices.append(BodyVertex(
-                    position: SIMD3(x, yM, z),
-                    normal:   SIMD3(nx, 0, nz),
+                    position: SIMD3(cos(angle) * rxM, yM, sin(angle) * rzM),
+                    normal:   SIMD3(cos(angle), 0, sin(angle)),
                     region:   slice.region,
                     influenceWeight: slice.w,
                     uv: SIMD2(Float(vi) / Float(ringSegments), uRow)
@@ -97,59 +118,214 @@ enum StandardBodyGenerator {
             }
         }
 
-        // ---- ポリゴン生成 ----
         for si in 0..<(totalRings - 1) {
             for vi in 0..<ringSegments {
                 let next  = (vi + 1) % ringSegments
-                let base0 = si * ringSegments
-                let base1 = (si + 1) * ringSegments
-                polygons.append(BodyPolygon(v0: base0+vi,   v1: base1+vi,   v2: base1+next))
-                polygons.append(BodyPolygon(v0: base0+vi,   v1: base1+next, v2: base0+next))
+                let b0 = baseIndex + si * ringSegments
+                let b1 = baseIndex + (si + 1) * ringSegments
+                polygons.append(BodyPolygon(v0: b0+vi,   v1: b1+vi,   v2: b1+next))
+                polygons.append(BodyPolygon(v0: b0+vi,   v1: b1+next, v2: b0+next))
             }
         }
 
-        // ---- 上キャップ ----
+        // 上キャップ（頭頂）
         let topIdx = vertices.count
         vertices.append(BodyVertex(
             position: SIMD3(0, (slices.first!.y - 111.0) / 100.0, 0),
-            normal: SIMD3(0, 1, 0), region: .neutral, influenceWeight: 0.05,
-            uv: SIMD2(0.5, 0.0)
+            normal: SIMD3(0, 1, 0), region: .neutral, influenceWeight: 0.05, uv: SIMD2(0.5, 0)
         ))
         for vi in 0..<ringSegments {
             let next = (vi + 1) % ringSegments
-            polygons.append(BodyPolygon(v0: topIdx, v1: next, v2: vi))
+            polygons.append(BodyPolygon(v0: topIdx, v1: baseIndex + next, v2: baseIndex + vi))
         }
 
-        // ---- 下キャップ ----
+        // 下キャップ（股）
         let botIdx  = vertices.count
-        let botBase = (totalRings - 1) * ringSegments
+        let botBase = baseIndex + (totalRings - 1) * ringSegments
         vertices.append(BodyVertex(
             position: SIMD3(0, (slices.last!.y - 111.0) / 100.0, 0),
-            normal: SIMD3(0, -1, 0), region: .leg, influenceWeight: 0.2,
-            uv: SIMD2(0.5, 1.0)
+            normal: SIMD3(0, -1, 0), region: .leg, influenceWeight: 0.2, uv: SIMD2(0.5, 1)
         ))
         for vi in 0..<ringSegments {
             let next = (vi + 1) % ringSegments
             polygons.append(BodyPolygon(v0: botIdx, v1: botBase+vi, v2: botBase+next))
         }
 
-        // ---- 変形ゾーン ----
-        var deformZones: [DeformationZone] = []
+        // 変形ゾーン
         for (si, slice) in slices.enumerated() {
-            let idxs = Array(si * ringSegments ..< (si + 1) * ringSegments)
+            let idxs = Array((baseIndex + si * ringSegments) ..< (baseIndex + si * ringSegments + ringSegments))
             switch slice.region {
             case .bust:
-                deformZones.append(DeformationZone(region: .bust,     vertexIndices: idxs, standardValue: StandardMeasurement().bust))
+                zones.append(DeformationZone(region: .bust,     vertexIndices: idxs, standardValue: m.bust))
             case .waist:
-                deformZones.append(DeformationZone(region: .waist,    vertexIndices: idxs, standardValue: StandardMeasurement().waist))
+                zones.append(DeformationZone(region: .waist,    vertexIndices: idxs, standardValue: m.waist))
             case .hip:
-                deformZones.append(DeformationZone(region: .hip,      vertexIndices: idxs, standardValue: StandardMeasurement().hip))
+                zones.append(DeformationZone(region: .hip,      vertexIndices: idxs, standardValue: m.hip))
             case .shoulder:
-                deformZones.append(DeformationZone(region: .shoulder, vertexIndices: idxs, standardValue: StandardMeasurement().shoulder * 2))
+                zones.append(DeformationZone(region: .shoulder, vertexIndices: idxs, standardValue: m.shoulder * 2))
             default: break
             }
         }
+    }
 
-        return BodyMesh(vertices: vertices, polygons: polygons, deformationZones: deformZones)
+    // ── 腕（片側9断面）────────────────────────────────────
+    private static func buildArm(
+        m: StandardMeasurement,
+        side: Float,           // -1=左, +1=右（X軸方向）
+        vertices: inout [BodyVertex],
+        polygons:  inout [BodyPolygon]
+    ) {
+        // 肩ライン位置（胴体の肩断面 y=138→141cm ≈ 0.27〜0.30m）
+        let shoulderTopY: Float = (141.0 - 111.0) / 100.0     // ≈ 0.30m
+        let shoulderX:    Float = side * 19.0 / 100.0          // 肩幅端（胴体rx=19cm）
+
+        let armLen:   Float = m.sleeveLen / 100.0              // 腕の全長（m）
+        let uArmR:    Float = m.upperArm  / (2 * Float.pi) / 100.0
+        let elbowR:   Float = uArmR * 0.78
+        let wristR:   Float = m.wrist    / (2 * Float.pi) / 100.0
+        let shldR:    Float = (m.bust    / (2 * Float.pi) / 100.0) * 0.22
+
+        // (tは0=肩付根〜1=手首, rx, rz, region, influenceWeight)
+        typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
+        let slices: [Sl] = [
+            (0.00, shldR * 1.2,       shldR * 1.1,       0.4),
+            (0.06, uArmR * 1.08,      uArmR * 1.00,      0.7),
+            (0.18, uArmR,             uArmR * 0.95,      0.6),
+            (0.33, uArmR * 0.94,      uArmR * 0.90,      0.5),
+            (0.50, elbowR * 1.10,     elbowR * 0.95,     0.4),  // 肘
+            (0.63, elbowR,            elbowR * 0.88,     0.4),
+            (0.76, wristR * 1.28,     wristR * 1.15,     0.35),
+            (0.90, wristR * 1.08,     wristR * 1.02,     0.3),
+            (1.00, wristR,            wristR * 0.88,     0.25),
+        ]
+
+        let seg   = 12
+        let base  = vertices.count
+
+        for (i, sl) in slices.enumerated() {
+            let t    = sl.t
+            // 腕は肩から斜め下外側へ伸びる
+            let xPos = shoulderX + side * t * armLen * 0.04
+            let yPos = shoulderTopY - t * armLen
+            let zPos: Float = 0.015 * (1 - t)   // 少し前方
+
+            let uRow = Float(i) / Float(slices.count - 1)
+            for vi in 0..<seg {
+                let angle = 2 * Float.pi * Float(vi) / Float(seg)
+                vertices.append(BodyVertex(
+                    position: SIMD3(xPos + cos(angle) * sl.rx,
+                                    yPos,
+                                    zPos + sin(angle) * sl.rz),
+                    normal:   SIMD3(cos(angle), 0, sin(angle)),
+                    region:   .shoulder,
+                    influenceWeight: sl.w,
+                    uv: SIMD2(Float(vi) / Float(seg), uRow)
+                ))
+            }
+        }
+
+        for si in 0..<(slices.count - 1) {
+            for vi in 0..<seg {
+                let next = (vi + 1) % seg
+                let b0 = base + si * seg
+                let b1 = base + (si + 1) * seg
+                polygons.append(BodyPolygon(v0: b0+vi,   v1: b1+vi,   v2: b1+next))
+                polygons.append(BodyPolygon(v0: b0+vi,   v1: b1+next, v2: b0+next))
+            }
+        }
+
+        // 手首キャップ
+        let capIdx   = vertices.count
+        let lastBase = base + (slices.count - 1) * seg
+        vertices.append(BodyVertex(
+            position: SIMD3(shoulderX + side * armLen * 0.04,
+                            shoulderTopY - armLen, 0.0),
+            normal: SIMD3(0, -1, 0), region: .shoulder, influenceWeight: 0.2,
+            uv: SIMD2(0.5, 1.0)
+        ))
+        for vi in 0..<seg {
+            polygons.append(BodyPolygon(v0: capIdx, v1: lastBase + vi, v2: lastBase + (vi+1) % seg))
+        }
+    }
+
+    // ── 脚（片側10断面）────────────────────────────────────
+    private static func buildLeg(
+        m: StandardMeasurement,
+        side: Float,
+        vertices: inout [BodyVertex],
+        polygons:  inout [BodyPolygon]
+    ) {
+        let thighR  = m.thigh / (2 * Float.pi) / 100.0
+        let calfR   = m.calf  / (2 * Float.pi) / 100.0
+        let ankleR  = calfR * 0.60
+        let hipR    = m.hip   / (2 * Float.pi) / 100.0
+
+        // 胴体の股断面（y=76cm）からスタート
+        let crotchY: Float = (76.0  - 111.0) / 100.0  // ≈ -0.35m
+        let ankleY:  Float = (3.0   - 111.0) / 100.0  // 床面3cm上 ≈ -1.08m
+        let legLen  = crotchY - ankleY
+
+        // 股付根のX位置（胴体rx=14cm を参考に左右に分ける）
+        let hipX: Float = side * 7.0 / 100.0
+
+        typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
+        let slices: [Sl] = [
+            (0.00, hipR * 0.70,        hipR * 0.65,        0.45),
+            (0.08, thighR * 1.10,      thighR * 1.00,      0.65),
+            (0.20, thighR,             thighR * 0.95,      0.60),
+            (0.32, thighR * 0.88,      thighR * 0.85,      0.52),
+            (0.44, thighR * 0.76,      thighR * 0.72,      0.42),  // 膝上
+            (0.52, thighR * 0.72,      thighR * 0.67,      0.38),  // 膝
+            (0.62, calfR  * 1.08,      calfR  * 1.00,      0.42),
+            (0.74, calfR,              calfR  * 0.92,      0.38),
+            (0.88, ankleR * 1.15,      ankleR * 1.05,      0.28),  // くるぶし上
+            (1.00, ankleR,             ankleR * 0.88,      0.18),
+        ]
+
+        let seg  = 16
+        let base = vertices.count
+
+        for (i, sl) in slices.enumerated() {
+            let t    = sl.t
+            let xPos = hipX + side * t * 0.004  // わずかに外開き
+            let yPos = crotchY - t * legLen
+            let zPos: Float = t * 0.018          // 少し前傾
+
+            let uRow = Float(i) / Float(slices.count - 1)
+            for vi in 0..<seg {
+                let angle = 2 * Float.pi * Float(vi) / Float(seg)
+                vertices.append(BodyVertex(
+                    position: SIMD3(xPos + cos(angle) * sl.rx,
+                                    yPos,
+                                    zPos + sin(angle) * sl.rz),
+                    normal:   SIMD3(cos(angle), 0, sin(angle)),
+                    region:   .leg,
+                    influenceWeight: sl.w,
+                    uv: SIMD2(Float(vi) / Float(seg), uRow)
+                ))
+            }
+        }
+
+        for si in 0..<(slices.count - 1) {
+            for vi in 0..<seg {
+                let next = (vi + 1) % seg
+                let b0 = base + si * seg
+                let b1 = base + (si + 1) * seg
+                polygons.append(BodyPolygon(v0: b0+vi,   v1: b1+vi,   v2: b1+next))
+                polygons.append(BodyPolygon(v0: b0+vi,   v1: b1+next, v2: b0+next))
+            }
+        }
+
+        // 足首キャップ
+        let capIdx   = vertices.count
+        let lastBase = base + (slices.count - 1) * seg
+        vertices.append(BodyVertex(
+            position: SIMD3(hipX + side * 0.004, ankleY, 0.018),
+            normal: SIMD3(0, -1, 0), region: .leg, influenceWeight: 0.1,
+            uv: SIMD2(0.5, 1.0)
+        ))
+        for vi in 0..<seg {
+            polygons.append(BodyPolygon(v0: capIdx, v1: lastBase + vi, v2: lastBase + (vi+1) % seg))
+        }
     }
 }
