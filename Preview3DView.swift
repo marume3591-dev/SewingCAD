@@ -189,16 +189,19 @@ struct MeshSceneKitView: NSViewRepresentable {
         let bodyGeo  = finalMesh.buildGeometry(theme: .skin)
         let bodyNode = SCNNode(geometry: bodyGeo)
         bodyNode.name = "body"
-        // ウエストY=0 → 身長の半分をY軸中心にするためオフセット
-        // waistHeight = 98cm → 0.98m, ウエスト以下が -0.98m なので地面 Y=0 補正
-        let waistOffsetY = CGFloat(stdM.waistHeight / 100.0)
+        // ウエストY=0原点 → ワールドY=0が足底になるようにオフセット
+        // 足底ローカルY = (3cm - 111cm) / 100 = -1.08m
+        // waistOffsetY = waistHeight/100 だと足底がY=-0.10mになるため +0.10m 補正
+        let floorOffset: CGFloat = 0.10   // 足底を床(Y=0)に合わせる補正
+        let waistOffsetY = CGFloat(stdM.waistHeight / 100.0) + floorOffset
         bodyNode.position = SCNVector3(0, waistOffsetY, 0)
         scene.rootNode.addChildNode(bodyNode)
 
-        // パターンノード
+        // パターンノード（ボディと同じオフセットを適用）
         for placement in placements {
-            if let node = makePatternNode(for: placement, mesh: finalMesh, stdM: stdM) {
-                node.position.y += CGFloat(stdM.waistHeight / 100.0)
+            let nodes = makePatternNodes(for: placement, mesh: finalMesh, stdM: stdM)
+            for node in nodes {
+                node.position.y += waistOffsetY
                 scene.rootNode.addChildNode(node)
             }
         }
@@ -223,40 +226,87 @@ struct MeshSceneKitView: NSViewRepresentable {
 
     // ── パターンノード生成（ボディ形状に合わせた配置）──────
 
+    // 旧シグネチャ互換（内部では makePatternNodes を呼ぶ）
     private func makePatternNode(
         for placement: PartPlacement,
         mesh: BodyMesh,
         stdM: StandardMeasurement
     ) -> SCNNode? {
+        makePatternNodes(for: placement, mesh: mesh, stdM: stdM).first
+    }
+
+    /// パターン1枚から左右ミラーを含む複数SCNNodeを生成する
+    private func makePatternNodes(
+        for placement: PartPlacement,
+        mesh: BodyMesh,
+        stdM: StandardMeasurement
+    ) -> [SCNNode] {
         let data = placement.patternData
         let bbox = boundingBox(of: data)
-        guard bbox.width > 1, bbox.height > 1 else { return nil }
-        guard let image = renderPatternImage(from: data, bbox: bbox) else { return nil }
+        guard bbox.width > 1, bbox.height > 1 else { return [] }
+        guard let image = renderPatternImage(from: data, bbox: bbox) else { return [] }
 
-        let unitPerPx: CGFloat = 0.1 / 37.8
+        let unitPerPx: CGFloat = 1.0 / 37.8 / 100.0   // 1px → cm → m
         let planeW = CGFloat(bbox.width  * unitPerPx)
         let planeH = CGFloat(bbox.height * unitPerPx)
 
-        let plane = SCNPlane(width: planeW, height: planeH)
-        plane.firstMaterial?.diffuse.contents    = image
-        plane.firstMaterial?.isDoubleSided       = true
-        plane.firstMaterial?.transparencyMode    = .default
-        plane.firstMaterial?.writesToDepthBuffer = false
-        plane.firstMaterial?.transparency        = CGFloat(1.0 - patternOpacity) == 0
-            ? 1.0 : CGFloat(patternOpacity)
+        // 共通マテリアル
+        let mat = SCNMaterial()
+        mat.diffuse.contents    = image
+        mat.isDoubleSided       = true
+        mat.transparencyMode    = .default
+        mat.writesToDepthBuffer = false
+        mat.transparency        = (patternOpacity < 0.01) ? 1.0 : CGFloat(patternOpacity)
 
-        let node = SCNNode(geometry: plane)
-        node.name = "pattern_\(placement.part.type.rawValue)"
+        func makePlaneNode(name: String) -> SCNNode {
+            let plane = SCNPlane(width: planeW, height: planeH)
+            plane.materials = [mat]
+            let n = SCNNode(geometry: plane)
+            n.name = name
+            return n
+        }
 
-        // メッシュから実寸を取得してポーズ計算
+        let type = placement.part.type
+
+        // メッシュ実寸からポーズ計算（Z オフセットを 0.02m に拡大）
         let pose = meshBasedPose(
-            for: placement.part.type,
-            mesh: mesh, stdM: stdM,
+            for: type, mesh: mesh, stdM: stdM,
             planeW: Float(planeW), planeH: Float(planeH)
         )
-        node.position    = pose.position
-        node.eulerAngles = pose.eulerAngles
-        return node
+
+        switch type {
+        // ── 前後身頃・スカート：右半身＋左半身ミラー ──
+        case .bodiceFront, .bodiceBack, .skirtFront, .skirtBack:
+            // 右半身: 中心線(X=0)から右へ planeW/2 だけオフセット
+            let right = makePlaneNode(name: "pattern_\(type.rawValue)_R")
+            right.position    = SCNVector3(planeW / 2, pose.position.y, pose.position.z)
+            right.eulerAngles = pose.eulerAngles
+
+            // 左半身: X軸ミラー（scale.x = -1 で画像も反転）
+            let left = makePlaneNode(name: "pattern_\(type.rawValue)_L")
+            left.position    = SCNVector3(-(planeW / 2), pose.position.y, pose.position.z)
+            left.eulerAngles = pose.eulerAngles
+            left.scale       = SCNVector3(-1, 1, 1)
+            return [right, left]
+
+        // ── 袖：左腕(pose)＋右腕(X反転) ──
+        case .sleeveFront:
+            let leftArm = makePlaneNode(name: "pattern_sleeve_L")
+            leftArm.position    = pose.position          // X < 0（左腕外側）
+            leftArm.eulerAngles = pose.eulerAngles       // Y軸90°のみ
+
+            let rightArm = makePlaneNode(name: "pattern_sleeve_R")
+            rightArm.position    = SCNVector3(-pose.position.x, pose.position.y, pose.position.z)
+            rightArm.eulerAngles = SCNVector3(pose.eulerAngles.x, -pose.eulerAngles.y, 0)
+            return [leftArm, rightArm]
+
+        // ── その他：1枚 ──
+        default:
+            let node = makePlaneNode(name: "pattern_\(type.rawValue)")
+            node.position    = pose.position
+            node.eulerAngles = pose.eulerAngles
+            return [node]
+        }
     }
 
     // ── メッシュ実寸ベースのポーズ計算 ─────────────────────
@@ -272,71 +322,67 @@ struct MeshSceneKitView: NSViewRepresentable {
         stdM: StandardMeasurement,
         planeW: Float, planeH: Float
     ) -> Pose {
-        func avgZ(_ region: BodyRegion) -> CGFloat {
-            let verts = mesh.vertices.filter { $0.region == region }
-            guard !verts.isEmpty else { return 0.13 }
-            return CGFloat(verts.compactMap { $0.position.z > 0 ? $0.position.z : nil }.max() ?? 0.13)
-        }
-        func avgY(_ region: BodyRegion) -> CGFloat {
-            let verts = mesh.vertices.filter { $0.region == region }
-            guard !verts.isEmpty else { return 0 }
-            return CGFloat(verts.reduce(Float(0)) { $0 + $1.position.y } / Float(verts.count))
-        }
-        func avgX(_ region: BodyRegion) -> CGFloat {
-            let verts = mesh.vertices.filter { $0.region == region && $0.position.x > 0 }
-            guard !verts.isEmpty else { return 0.19 }
-            return CGFloat(verts.reduce(Float(0)) { $0 + $1.position.x } / Float(verts.count))
-        }
+        // stdM から直接ボディ座標を算出
+        // ウエスト = Y原点(0)、上方向が+Y
 
-        let bustFrontZ  = avgZ(.bust)    + 0.005
-        let bustBackZ   = -(avgZ(.bust)  + 0.005)
-        let bustY       = avgY(.bust)
-        let waistY      = avgY(.waist)
-        let hipZ        = avgZ(.hip)     + 0.005
-        let legY        = avgY(.leg)
-        let shoulderX   = avgX(.shoulder) + 0.01
-        let shoulderY   = avgY(.shoulder)
-        let torsoMidY   = (bustY + waistY) / 2
-        let skirtMidY   = (waistY + legY)  / 2
-        let hipY        = avgY(.hip)
-        let pw          = CGFloat(planeW)
-        let ph          = CGFloat(planeH)
+        let wH = stdM.waistHeight       // ウエスト床高 cm
+        let h  = stdM.height            // 身長 cm
+
+        // 肩線Y（ウエスト基準）
+        // StandardBodyData の肩スライス = 床から141cm、ウエスト原点 = 111cm
+        // ローカルY = (141 - 111) / 100 = 0.30m、身長スケールで補正
+        let shoulderY = CGFloat((141.0 - 111.0) / 100.0 * Double(h / 158.0))
+        let waistY:   CGFloat = 0.0
+
+        // 前後Z: StandardBodyData の実測値ベース（bust最大rz=13.5cm, hip=13.2cm）
+        let zGap:      CGFloat = 0.025
+        let bustFrontZ = CGFloat(stdM.bust  * 0.162 / 100.0) + zGap   // ≈ bust周/6.17 = 前後半径
+        let hipFrontZ  = CGFloat(stdM.hip   * 0.145 / 100.0) + zGap
+
+        // 片側肩幅X
+        let shoulderX = CGFloat(stdM.shoulder / 2.0 / 100.0) + 0.01
+
+        let ph = CGFloat(planeH)
 
         switch type {
         case .bodiceFront:
-            return Pose(position: SCNVector3(0, torsoMidY, bustFrontZ),
+            // 中央X=0、上端を肩線に合わせる
+            return Pose(position: SCNVector3(0, shoulderY - ph * 0.5, bustFrontZ),
                         eulerAngles: SCNVector3(0, 0, 0))
         case .bodiceBack:
-            return Pose(position: SCNVector3(0, torsoMidY, bustBackZ),
+            return Pose(position: SCNVector3(0, shoulderY - ph * 0.5, -bustFrontZ),
                         eulerAngles: SCNVector3(0, Float.pi, 0))
         case .sleeveFront:
-            return Pose(position: SCNVector3(-shoulderX, shoulderY - ph * 0.5, 0),
+            // 肩の外側に縦置き（Y軸90°回転）、腕の傾きはなし（垂直のほうが自然）
+            let sleeveX = shoulderX + CGFloat(planeW) * 0.5
+            return Pose(position: SCNVector3(-sleeveX, shoulderY - ph * 0.5, 0),
                         eulerAngles: SCNVector3(0, Float.pi / 2, 0))
         case .skirtFront:
-            return Pose(position: SCNVector3(0, skirtMidY, hipZ),
+            return Pose(position: SCNVector3(0, waistY - ph * 0.5, hipFrontZ),
                         eulerAngles: SCNVector3(0, 0, 0))
         case .skirtBack:
-            return Pose(position: SCNVector3(0, skirtMidY, -hipZ),
+            return Pose(position: SCNVector3(0, waistY - ph * 0.5, -hipFrontZ),
                         eulerAngles: SCNVector3(0, Float.pi, 0))
         case .pants:
-            return Pose(position: SCNVector3(0, legY + ph * 0.5, hipZ),
+            return Pose(position: SCNVector3(0, waistY - ph * 0.5, hipFrontZ),
                         eulerAngles: SCNVector3(0, 0, 0))
         case .collar:
-            let neckY = avgY(.neck)
-            return Pose(position: SCNVector3(0, neckY, avgZ(.neck) * 0.5),
+            let neckZ = CGFloat(stdM.neck * 0.16 / 100.0) + zGap
+            return Pose(position: SCNVector3(0, shoulderY + 0.07, neckZ),
                         eulerAngles: SCNVector3(Float.pi * 0.15, 0, 0))
         case .cuff:
-            return Pose(position: SCNVector3(-shoulderX, hipY - 0.30, 0),
+            let cuffX = shoulderX + CGFloat(planeW) * 0.5
+            return Pose(position: SCNVector3(-cuffX, shoulderY - ph * 1.5, 0),
                         eulerAngles: SCNVector3(0, Float.pi / 2, 0))
         case .waistband:
-            return Pose(position: SCNVector3(0, waistY, avgZ(.waist) * 0.4),
+            let wbZ = CGFloat(stdM.waist * 0.16 / 100.0)
+            return Pose(position: SCNVector3(0, waistY, wbZ),
                         eulerAngles: SCNVector3(Float.pi / 2, 0, 0))
         case .other:
-            return Pose(position: SCNVector3(avgX(.bust) * 2.2, torsoMidY, 0),
+            return Pose(position: SCNVector3(shoulderX * 2.2, waistY, 0),
                         eulerAngles: SCNVector3(0, Float.pi / 2, 0))
         }
     }
-
     // ── パターン画像レンダリング ────────────────────────────
 
     private func renderPatternImage(from data: PatternData, bbox: CGRect) -> NSImage? {
