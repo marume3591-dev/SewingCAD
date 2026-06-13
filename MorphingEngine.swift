@@ -153,22 +153,31 @@ class MorphingEngine: ObservableObject {
                 vtx.position.y = yM * backLenRatio
 
             case .shoulder:
-                // X：肩幅比率
-                vtx.position.x *= shoulderRatio
                 // Z：バスト差分で微調整
                 vtx.position.z += rdiff(bustDiff) * w * 0.3
 
                 if yM >= shoulderTopY * 0.5 {
-                    // 肩〜首エリア：背丈比率
+                    // ── 胴体肩エリア：肩幅比率でXをスケール ──
+                    vtx.position.x *= shoulderRatio
                     vtx.position.y = yM * backLenRatio
                 } else {
-                    // 腕エリア：袖丈比率
+                    // ── 腕エリア：肩幅シフト＋腕太さ変化を分離 ──
+                    // 標準の肩幅端X
+                    let stdShoulderX = std.shoulder / 2.0 / 100.0
+                    // 新しい肩幅端X
+                    let newShoulderX = shoulderW / 2.0 / 100.0
+                    // 腕中心軸からのオフセット（腕の太さ分）
+                    let armOffset = vtx.position.x - (sign(vtx.position.x) * stdShoulderX)
+                    // 新しいX = 新しい肩幅端 + 腕太さ変化
+                    let armThicknessChange = rdiff(upperArmDiff) * w * 0.5
+                    vtx.position.x = sign(vtx.position.x) * newShoulderX + armOffset + armThicknessChange * sign(vtx.position.x)
+                    vtx.position.z += rdiff(upperArmDiff) * w * 0.4
+                    // Y：袖丈比率
                     let relY = yM - shoulderTopY
                     vtx.position.y = shoulderTopY * backLenRatio + relY * sleeveLenRatio
-                    vtx.position.x += rdiff(upperArmDiff) * w * 0.5
-                    vtx.position.z += rdiff(upperArmDiff) * w * 0.4
+                    // 手首
                     let wristBlend = max(0, 1.0 - w * 2.5)
-                    vtx.position.x += rdiff(wristDiff) * wristBlend
+                    vtx.position.x += rdiff(wristDiff) * wristBlend * sign(vtx.position.x)
                 }
 
             case .bust:
