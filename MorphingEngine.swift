@@ -193,18 +193,22 @@ class MorphingEngine: ObservableObject {
             case .waist:
                 vtx.position.x += rdiff(waistDiff) * w * sign(vtx.position.x)
                 vtx.position.z += rdiff(waistDiff) * w * 0.7
-                // ウエストはbackLenRatioとinseamRatioの中間
-                let t = clamp(-yM / 0.15, 0, 1)  // ウエスト付近で滑らかにブレンド
-                vtx.position.y = yM * (backLenRatio * (1-t) + inseamRatio * t)
+                // ウエスト(y=0)付近はbackLen/inseamをスムーズにブレンド
+                // y>0: backLenRatio, y<0: inseamRatioに向かって滑らかに移行
+                let tWaist = clamp(-yM / 0.10, 0, 1)
+                vtx.position.y = yM * (backLenRatio * (1-tWaist) + inseamRatio * tWaist)
 
             case .abdomen:
                 vtx.position.x += rdiff(midHipDiff) * w * 0.6 * sign(vtx.position.x)
                 vtx.position.z += rdiff(midHipDiff) * w * 0.7
-                vtx.position.y = yM * inseamRatio
+                // abdomen(y≈-0.06〜-0.09): inseamRatioに近いがwaistとの連続性を保つ
+                let tAbdomen = clamp((-yM - 0.03) / 0.09, 0, 1)
+                vtx.position.y = yM * (backLenRatio * (1-tAbdomen) + inseamRatio * tAbdomen)
 
             case .hip:
                 vtx.position.x += rdiff(hipDiff) * w * sign(vtx.position.x)
                 vtx.position.z += rdiff(hipDiff) * w * 0.75
+                // hip(y≈-0.12〜-0.21): inseamRatioで統一
                 vtx.position.y = yM * inseamRatio
 
             case .leg:

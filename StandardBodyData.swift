@@ -187,8 +187,10 @@ enum StandardBodyGenerator {
         let shldR:    Float = (m.bust    / (2 * Float.pi) / 100.0) * 0.22
 
         // 胴体肩断面（y=138cm）のrx=19cmに腕付け根を合わせる
-        // 腕付け根は胴体端から自然につながるよう大きめに設定
-        let shoulderJointR: Float = 19.0 / 100.0 * 0.28  // 胴体rx * 0.28 ≈ 5.3cm
+        // shoulderJointR = 胴体肩rx × shoulderRatio × 0.30（腕は胴体肩幅の30%程度）
+        let torsoShoulderRx: Float = 19.0 / 100.0
+        let shoulderRatio: Float = m.shoulder / 38.0  // 標準肩幅38cmからの比率
+        let shoulderJointR: Float = torsoShoulderRx * shoulderRatio * 0.30
 
         // (tは0=肩付根〜1=手首, rx, rz, region, influenceWeight)
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
@@ -273,9 +275,10 @@ enum StandardBodyGenerator {
         let ankleY:  Float = (3.0   - 111.0) / 100.0  // 床面3cm上 ≈ -1.08m
         let legLen  = crotchY - ankleY
 
-        // 股付根のX位置：太ももの半径分だけ中心からオフセット
-        // モーフィング後の胴体底面にフィットするよう計測値から計算
-        let hipX: Float = side * (m.hip / (2 * Float.pi) / 100.0) * 0.55
+        // 股付根のX位置：胴体底断面rx=14cmの半分＝7cmを基準に
+        // ヒップ比率でスケールして体型変化に追従
+        let hipRatio: Float = m.hip / 91.0  // 標準ヒップ91cmからの比率
+        let hipX: Float = side * 7.0 / 100.0 * hipRatio
         // 脚付け根半径：太ももの半径に合わせる
         let crotchJointR: Float = thighR * 1.05
 
