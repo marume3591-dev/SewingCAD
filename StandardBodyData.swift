@@ -175,9 +175,10 @@ enum StandardBodyGenerator {
         vertices: inout [BodyVertex],
         polygons:  inout [BodyPolygon]
     ) {
-        // 肩ライン位置（胴体の肩断面 y=138→141cm ≈ 0.27〜0.30m）
+        // 肩ライン位置（胴体の肩断面）
+        // 計測値の肩幅から腕付け根X座標を動的に計算（固定値19cmではなく体型に追従）
         let shoulderTopY: Float = (141.0 - 111.0) / 100.0     // ≈ 0.30m
-        let shoulderX:    Float = side * 19.0 / 100.0          // 肩幅端（胴体rx=19cm）
+        let shoulderX:    Float = side * m.shoulder / 2.0 / 100.0  // 肩幅の半分
 
         let armLen:   Float = m.sleeveLen / 100.0              // 腕の全長（m）
         let uArmR:    Float = m.upperArm  / (2 * Float.pi) / 100.0
@@ -209,9 +210,11 @@ enum StandardBodyGenerator {
         for (i, sl) in slices.enumerated() {
             let t    = sl.t
             // 腕は肩から斜め下外側へ伸びる
-            let xPos = shoulderX + side * t * armLen * 0.04
+            // 傾き量を肩幅に比例させる（固定値0.04ではなく肩幅の5%）
+            let slopeX: Float = side * t * (m.shoulder / 100.0) * 0.05
+            let xPos = shoulderX + slopeX
             let yPos = shoulderTopY - t * armLen
-            let zPos: Float = 0.015 * (1 - t)   // 少し前方
+            let zPos: Float = 0.012 * (1 - t)   // 少し前方
 
             let uRow = Float(i) / Float(slices.count - 1)
             for vi in 0..<seg {
@@ -241,8 +244,9 @@ enum StandardBodyGenerator {
         // 手首キャップ
         let capIdx   = vertices.count
         let lastBase = base + (slices.count - 1) * seg
+        let wristSlopeX: Float = side * (m.shoulder / 100.0) * 0.05
         vertices.append(BodyVertex(
-            position: SIMD3(shoulderX + side * armLen * 0.04,
+            position: SIMD3(shoulderX + wristSlopeX,
                             shoulderTopY - armLen, 0.0),
             normal: SIMD3(0, -1, 0), region: .shoulder, influenceWeight: 0.2,
             uv: SIMD2(0.5, 1.0)
@@ -269,10 +273,11 @@ enum StandardBodyGenerator {
         let ankleY:  Float = (3.0   - 111.0) / 100.0  // 床面3cm上 ≈ -1.08m
         let legLen  = crotchY - ankleY
 
-        // 股付根のX位置（胴体rx=14cm を参考に左右に分ける）
-        let hipX: Float = side * 7.0 / 100.0
-        // 脚付け根半径：胴体底断面rx=14cmの半分に合わせる
-        let crotchJointR: Float = 0.070  // 7cm
+        // 股付根のX位置：太ももの半径分だけ中心からオフセット
+        // モーフィング後の胴体底面にフィットするよう計測値から計算
+        let hipX: Float = side * (m.hip / (2 * Float.pi) / 100.0) * 0.55
+        // 脚付け根半径：太ももの半径に合わせる
+        let crotchJointR: Float = thighR * 1.05
 
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
         let slices: [Sl] = [
