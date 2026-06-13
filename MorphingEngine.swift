@@ -32,13 +32,11 @@ class MorphingEngine: ObservableObject {
         let std    = StandardMeasurement()
         let result = base.copy()
 
-        // 計測値ヘルパー（0の場合は標準値）
         func v(_ id: Int) -> Float {
             let raw = Float(measurement.value(for: id))
             return raw > 0 ? raw : defaultValue(id, std: std)
         }
 
-        // ── 寸法取得 ──────────────────────────────────────
         let height      = v(19)
         let bust        = v(1)
         let highBust    = v(0)
@@ -57,151 +55,167 @@ class MorphingEngine: ObservableObject {
         let waistHeight = v(26)
         let inseam      = v(30)
 
-        // ── 標準値との差分・比率 ───────────────────────────
-        let heightRatio   = height      / std.height
-        let bustDiff      = bust        - std.bust
-        let waistDiff     = waist       - std.waist
-        let hipDiff       = hip         - std.hip
-        let midHipDiff    = midHip      - (std.hip * 0.88)
-        let highBustDiff  = highBust    - (std.bust * 0.90)
-        let underBustDiff = underBust   - std.underBust
-        let neckDiff      = neckCirc    - std.neck
-        let shoulderRatio = shoulderW   / std.shoulder
-        let upperArmDiff  = upperArm    - std.upperArm
-        let wristDiff     = wristCirc   - std.wrist
-        let thighDiff     = thigh       - std.thigh
-        let calfDiff      = calf        - std.calf
-        let backLenRatio  = backLength  / std.backLength
-        let sleeveLenRatio = sleeveLen  / std.sleeveLen
-        let waistHRatio   = waistHeight / std.waistHeight
-        let inseamRatio   = inseam      / std.inseam
-
-        // 半径差分（cm → m）
-        func rdiff(_ diff: Float) -> Float { diff / (2 * Float.pi) / 100.0 }
-
-        // ── ウエストY原点基準の各ライン高さ（メートル）─────
-        let stdWY  = std.waistHeight / 100.0    // 標準ウエスト高 m
-        let newWY  = waistHeight     / 100.0
-        let wDelta = newWY - stdWY
-
-        for i in result.vertices.indices {
-            var vtx = result.vertices[i]
-            let w   = vtx.influenceWeight
-            // 現在のY（ウエスト=0原点）
-            let yM  = vtx.position.y
-
-            switch vtx.region {
-
-            // ── 首 ──────────────────────────────────
-            case .neck:
-                vtx.position.x += rdiff(neckDiff) * w
-                vtx.position.z += rdiff(neckDiff) * w * 0.8
-                // ウエスト上方のY：背丈比率でスケール
-                if yM > 0 {
-                    vtx.position.y = yM * backLenRatio + wDelta * 0.5 * w
-                }
-
-            // ── 肩 ──────────────────────────────────
-            case .shoulder:
-                // X方向：肩幅比率
-                vtx.position.x *= shoulderRatio
-                // Z方向：バスト差分で微調整
-                vtx.position.z += rdiff(bustDiff) * w * 0.5
-                // 腕部分の肩（Y < 0 は腕メッシュ）：袖丈比率
-                if yM < 0 {
-                    // 腕: Y を sleeveLenRatio でスケール + 上腕太さ
-                    vtx.position.y *= sleeveLenRatio
-                    vtx.position.x += rdiff(upperArmDiff) * w * abs(vtx.position.x) * 0.3
-                    vtx.position.z += rdiff(upperArmDiff) * w * 0.4
-                    // 手首部分（wに依存）
-                    let wristBlend = max(0, 1.0 - w * 2.5)  // w が小さいほど手首寄り
-                    vtx.position.x += rdiff(wristDiff) * wristBlend
-                    vtx.position.z += rdiff(wristDiff) * wristBlend * 0.8
-                } else if yM > 0 {
-                    vtx.position.y = yM * backLenRatio + wDelta * 0.5 * w
-                }
-
-            // ── バスト ───────────────────────────────
-            case .bust:
-                let disp = rdiff(bustDiff) * w
-                vtx.position.x += disp * sign(vtx.position.x)
-                vtx.position.z += rdiff(bustDiff) * w * 0.85
-                // ハイバスト補正（上部断面）
-                let hbDisp = rdiff(highBustDiff) * w * 0.3
-                vtx.position.x += hbDisp * sign(vtx.position.x)
-                if yM > 0 {
-                    vtx.position.y = yM * backLenRatio + wDelta * 0.5 * w
-                }
-
-            // ── アンダーバスト ────────────────────────
-            case .underBust:
-                let disp = rdiff(underBustDiff) * w
-                vtx.position.x += disp * sign(vtx.position.x)
-                vtx.position.z += rdiff(underBustDiff) * w * 0.7
-                if yM > 0 {
-                    vtx.position.y = yM * backLenRatio + wDelta * 0.5 * w
-                }
-
-            // ── ウエスト ─────────────────────────────
-            case .waist:
-                let disp = rdiff(waistDiff) * w
-                vtx.position.x += disp * sign(vtx.position.x)
-                vtx.position.z += rdiff(waistDiff) * w * 0.78
-                // ウエスト高による縦方向微調整
-                vtx.position.y += wDelta * 0.08 * w
-
-            // ── 腹部 ─────────────────────────────────
-            case .abdomen:
-                let disp = rdiff(midHipDiff) * w * 0.75
-                vtx.position.x += disp * sign(vtx.position.x)
-                vtx.position.z += rdiff(midHipDiff) * w * 0.85
-                // ウエスト高〜ヒップ高の間でY調整
-                let localT = clamp((-yM) / stdWY, 0, 1)
-                vtx.position.y += wDelta * localT * 0.4 * w
-
-            // ── ヒップ ───────────────────────────────
-            case .hip:
-                let disp = rdiff(hipDiff) * w
-                vtx.position.x += disp * sign(vtx.position.x)
-                vtx.position.z += rdiff(hipDiff) * w * 0.82
-                // 股下丈・ウエスト高でヒップのY位置調整
-                let hipStdY = -(stdWY - std.hipHeight / 100.0)
-                let hipNewY = -(newWY - Float(measurement.value(for: 27) > 0 ? Float(measurement.value(for: 27)) : std.hipHeight) / 100.0)
-                if abs(hipStdY) > 0 && abs(yM - hipStdY) < 0.12 {
-                    vtx.position.y = yM * (hipNewY / hipStdY) * w + yM * (1.0 - w)
-                }
-
-            // ── 脚 ──────────────────────────────────
-            case .leg:
-                // 地面からの絶対高さ（stdWY 基準で変換）
-                let absY = yM + stdWY
-                if absY / stdWY > 0.45 {
-                    // 大腿域: 太もも差分
-                    let disp = rdiff(thighDiff) * w * 0.8
-                    vtx.position.x += disp * sign(vtx.position.x)
-                    vtx.position.z += rdiff(thighDiff) * w * 0.6
-                } else {
-                    // 下腿〜足首域: ふくらはぎ差分
-                    let disp = rdiff(calfDiff) * w * 0.7
-                    vtx.position.x += disp * sign(vtx.position.x)
-                    vtx.position.z += rdiff(calfDiff) * w * 0.5
-                }
-                // Y方向: 股下丈比率でスケール（ウエスト下方）
-                if yM < 0 {
-                    vtx.position.y = yM * inseamRatio
-                }
-
-            // ── 中立（頭部等）───────────────────────
-            case .neutral:
-                vtx.position.y *= heightRatio
-            }
-
-            result.vertices[i] = vtx
-        }
+        applyMorph(
+            to: result, std: std,
+            height: height, bust: bust, highBust: highBust,
+            underBust: underBust, waist: waist, midHip: midHip,
+            hip: hip, upperArm: upperArm, wristCirc: wristCirc,
+            neckCirc: neckCirc, thigh: thigh, calf: calf,
+            shoulderW: shoulderW, backLength: backLength,
+            sleeveLen: sleeveLen, waistHeight: waistHeight, inseam: inseam
+        )
 
         recalculateNormals(mesh: result)
         appliedName = measurement.name ?? "不明"
         return result
+    }
+
+    /// StandardMeasurementを直接受け取るスレッドセーフ版
+    func morph(base: BodyMesh, stdM: StandardMeasurement) -> BodyMesh {
+        let std    = StandardMeasurement()
+        let result = base.copy()
+
+        func use(_ val: Float, _ def: Float) -> Float { val > 0 ? val : def }
+
+        applyMorph(
+            to: result, std: std,
+            height:      use(stdM.height,      std.height),
+            bust:        use(stdM.bust,        std.bust),
+            highBust:    use(stdM.bust * 0.90, std.bust * 0.90),
+            underBust:   use(stdM.underBust,   std.underBust),
+            waist:       use(stdM.waist,       std.waist),
+            midHip:      use(stdM.hip * 0.88,  std.hip * 0.88),
+            hip:         use(stdM.hip,         std.hip),
+            upperArm:    use(stdM.upperArm,    std.upperArm),
+            wristCirc:   use(stdM.wrist,       std.wrist),
+            neckCirc:    use(stdM.neck,        std.neck),
+            thigh:       use(stdM.thigh,       std.thigh),
+            calf:        use(stdM.calf,        std.calf),
+            shoulderW:   use(stdM.shoulder,    std.shoulder),
+            backLength:  use(stdM.backLength,  std.backLength),
+            sleeveLen:   use(stdM.sleeveLen,   std.sleeveLen),
+            waistHeight: use(stdM.waistHeight, std.waistHeight),
+            inseam:      use(stdM.inseam,      std.inseam)
+        )
+
+        recalculateNormals(mesh: result)
+        appliedName = "カスタム"
+        return result
+    }
+
+    /// 共通変形ロジック（CoreData非依存）
+    private func applyMorph(
+        to result: BodyMesh,
+        std: StandardMeasurement,
+        height: Float, bust: Float, highBust: Float,
+        underBust: Float, waist: Float, midHip: Float,
+        hip: Float, upperArm: Float, wristCirc: Float,
+        neckCirc: Float, thigh: Float, calf: Float,
+        shoulderW: Float, backLength: Float,
+        sleeveLen: Float, waistHeight: Float, inseam: Float
+    ) {
+        // ── 比率・差分 ────────────────────────────────────
+        let heightRatio    = clamp(height      / std.height,      0.5, 1.8)
+        let bustDiff       = bust        - std.bust
+        let underBustDiff  = underBust   - std.underBust
+        let waistDiff      = waist       - std.waist
+        let midHipDiff     = midHip      - (std.hip * 0.88)
+        let hipDiff        = hip         - std.hip
+        let neckDiff       = neckCirc    - std.neck
+        let shoulderRatio  = clamp(shoulderW   / std.shoulder,    0.6, 1.5)
+        let upperArmDiff   = upperArm    - std.upperArm
+        let wristDiff      = wristCirc   - std.wrist
+        let thighDiff      = thigh       - std.thigh
+        let calfDiff       = calf        - std.calf
+        // Y方向はすべて heightRatio で統一（wDeltaは使わない）
+        let backLenRatio   = clamp(backLength  / std.backLength,  0.5, 1.8)
+        let sleeveLenRatio = clamp(sleeveLen   / std.sleeveLen,   0.5, 1.8)
+        let inseamRatio    = clamp(inseam      / std.inseam,      0.5, 1.8)
+
+        // 半径差分（周長差 → 半径差: cm → m）
+        func rdiff(_ diff: Float) -> Float { diff / (2 * Float.pi) / 100.0 }
+
+        // 肩付け根のY境界
+        let shoulderTopY: Float = (141.0 - 111.0) / 100.0  // 0.30m
+
+        for i in result.vertices.indices {
+            var vtx = result.vertices[i]
+            let w  = vtx.influenceWeight
+            let yM = vtx.position.y
+
+            switch vtx.region {
+
+            case .neck:
+                // XZ：首周りスケール
+                vtx.position.x += rdiff(neckDiff) * w * 0.5
+                vtx.position.z += rdiff(neckDiff) * w * 0.4
+                // Y：背丈比率
+                vtx.position.y = yM * backLenRatio
+
+            case .shoulder:
+                // X：肩幅比率
+                vtx.position.x *= shoulderRatio
+                // Z：バスト差分で微調整
+                vtx.position.z += rdiff(bustDiff) * w * 0.3
+
+                if yM >= shoulderTopY * 0.5 {
+                    // 肩〜首エリア：背丈比率
+                    vtx.position.y = yM * backLenRatio
+                } else {
+                    // 腕エリア：袖丈比率
+                    let relY = yM - shoulderTopY
+                    vtx.position.y = shoulderTopY * backLenRatio + relY * sleeveLenRatio
+                    vtx.position.x += rdiff(upperArmDiff) * w * 0.5
+                    vtx.position.z += rdiff(upperArmDiff) * w * 0.4
+                    let wristBlend = max(0, 1.0 - w * 2.5)
+                    vtx.position.x += rdiff(wristDiff) * wristBlend
+                }
+
+            case .bust:
+                vtx.position.x += rdiff(bustDiff) * w * sign(vtx.position.x)
+                vtx.position.z += rdiff(bustDiff) * w * 0.7
+                vtx.position.y = yM * backLenRatio
+
+            case .underBust:
+                vtx.position.x += rdiff(underBustDiff) * w * sign(vtx.position.x)
+                vtx.position.z += rdiff(underBustDiff) * w * 0.6
+                vtx.position.y = yM * backLenRatio
+
+            case .waist:
+                vtx.position.x += rdiff(waistDiff) * w * sign(vtx.position.x)
+                vtx.position.z += rdiff(waistDiff) * w * 0.7
+                // ウエストはbackLenRatioとinseamRatioの中間
+                let t = clamp(-yM / 0.15, 0, 1)  // ウエスト付近で滑らかにブレンド
+                vtx.position.y = yM * (backLenRatio * (1-t) + inseamRatio * t)
+
+            case .abdomen:
+                vtx.position.x += rdiff(midHipDiff) * w * 0.6 * sign(vtx.position.x)
+                vtx.position.z += rdiff(midHipDiff) * w * 0.7
+                vtx.position.y = yM * inseamRatio
+
+            case .hip:
+                vtx.position.x += rdiff(hipDiff) * w * sign(vtx.position.x)
+                vtx.position.z += rdiff(hipDiff) * w * 0.75
+                vtx.position.y = yM * inseamRatio
+
+            case .leg:
+                if yM > -0.15 {
+                    // 大腿
+                    vtx.position.x += rdiff(thighDiff) * w * 0.7 * sign(vtx.position.x)
+                    vtx.position.z += rdiff(thighDiff) * w * 0.5
+                } else {
+                    // 下腿〜足首
+                    vtx.position.x += rdiff(calfDiff) * w * 0.6 * sign(vtx.position.x)
+                    vtx.position.z += rdiff(calfDiff) * w * 0.4
+                }
+                vtx.position.y = yM * inseamRatio
+
+            case .neutral:
+                vtx.position.y = yM * heightRatio
+            }
+
+            result.vertices[i] = vtx
+        }
     }
 
     func morphToStandard(base: BodyMesh) -> BodyMesh {

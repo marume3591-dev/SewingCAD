@@ -115,6 +115,24 @@ class BodyMesh: ObservableObject {
         self.deformationZones = deformationZones
     }
 
+    // MARK: カラーテーマ
+
+    enum ColorTheme { case skin, wire }
+
+    // MARK: SceneKit ジオメトリ生成（テーマ対応）
+
+    func buildGeometry(theme: ColorTheme) -> SCNGeometry {
+        let geo = buildGeometry()
+        switch theme {
+        case .skin:
+            break
+        case .wire:
+            geo.firstMaterial?.diffuse.contents = NSColor(white: 0.4, alpha: 0.6)
+            geo.firstMaterial?.fillMode = .lines
+        }
+        return geo
+    }
+
     // MARK: SceneKit ジオメトリ生成
 
     func buildGeometry() -> SCNGeometry {

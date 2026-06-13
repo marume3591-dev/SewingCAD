@@ -185,18 +185,22 @@ enum StandardBodyGenerator {
         let wristR:   Float = m.wrist    / (2 * Float.pi) / 100.0
         let shldR:    Float = (m.bust    / (2 * Float.pi) / 100.0) * 0.22
 
+        // 胴体肩断面（y=138cm）のrx=19cmに腕付け根を合わせる
+        // 腕付け根は胴体端から自然につながるよう大きめに設定
+        let shoulderJointR: Float = 19.0 / 100.0 * 0.28  // 胴体rx * 0.28 ≈ 5.3cm
+
         // (tは0=肩付根〜1=手首, rx, rz, region, influenceWeight)
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
         let slices: [Sl] = [
-            (0.00, shldR * 1.2,       shldR * 1.1,       0.4),
-            (0.06, uArmR * 1.08,      uArmR * 1.00,      0.7),
-            (0.18, uArmR,             uArmR * 0.95,      0.6),
-            (0.33, uArmR * 0.94,      uArmR * 0.90,      0.5),
-            (0.50, elbowR * 1.10,     elbowR * 0.95,     0.4),  // 肘
-            (0.63, elbowR,            elbowR * 0.88,     0.4),
-            (0.76, wristR * 1.28,     wristR * 1.15,     0.35),
-            (0.90, wristR * 1.08,     wristR * 1.02,     0.3),
-            (1.00, wristR,            wristR * 0.88,     0.25),
+            (0.00, shoulderJointR,        shoulderJointR * 0.9,  0.4),  // 付け根：胴体肩断面に合わせた大きさ
+            (0.06, uArmR * 1.08,          uArmR * 1.00,          0.7),
+            (0.18, uArmR,                 uArmR * 0.95,          0.6),
+            (0.33, uArmR * 0.94,          uArmR * 0.90,          0.5),
+            (0.50, elbowR * 1.10,         elbowR * 0.95,         0.4),
+            (0.63, elbowR,                elbowR * 0.88,         0.4),
+            (0.76, wristR * 1.28,         wristR * 1.15,         0.35),
+            (0.90, wristR * 1.08,         wristR * 1.02,         0.3),
+            (1.00, wristR,                wristR * 0.88,         0.25),
         ]
 
         let seg   = 12
@@ -267,10 +271,12 @@ enum StandardBodyGenerator {
 
         // 股付根のX位置（胴体rx=14cm を参考に左右に分ける）
         let hipX: Float = side * 7.0 / 100.0
+        // 脚付け根半径：胴体底断面rx=14cmの半分に合わせる
+        let crotchJointR: Float = 0.070  // 7cm
 
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
         let slices: [Sl] = [
-            (0.00, hipR * 0.70,        hipR * 0.65,        0.45),
+            (0.00, crotchJointR,       crotchJointR * 0.9, 0.45), // 胴体底面にフィット
             (0.08, thighR * 1.10,      thighR * 1.00,      0.65),
             (0.20, thighR,             thighR * 0.95,      0.60),
             (0.32, thighR * 0.88,      thighR * 0.85,      0.52),

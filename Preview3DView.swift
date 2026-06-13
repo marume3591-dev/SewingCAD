@@ -143,65 +143,93 @@ struct MeshSceneKitView: NSViewRepresentable {
     let measurement: MeasurementProfile?
     var patternOpacity: Double = 1.0
 
+    // Coordinatorでタスクの重複実行を防ぐ
+    class Coordinator {
+        var buildTask: DispatchWorkItem?
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func makeNSView(context: Context) -> SCNView {
         let scnView = SCNView()
         scnView.allowsCameraControl = true
         scnView.autoenablesDefaultLighting = false
         scnView.backgroundColor = NSColor(red: 0.18, green: 0.18, blue: 0.20, alpha: 1)
         scnView.antialiasingMode = .multisampling4X
-        scnView.scene = buildScene()
+        // 空シーンをまず表示
+        let empty = SCNScene()
         let cam = makeCamera()
-        scnView.scene?.rootNode.addChildNode(cam)
+        empty.rootNode.addChildNode(cam)
+        scnView.scene = empty
         scnView.pointOfView = cam
+        // バックグラウンドでシーン構築
+        scheduleBuild(into: scnView, coordinator: context.coordinator)
         return scnView
     }
 
     func updateNSView(_ scnView: SCNView, context: Context) {
-        let pov = scnView.pointOfView
-        scnView.scene = buildScene()
-        if let pov = pov {
-            scnView.scene?.rootNode.addChildNode(pov)
-            scnView.pointOfView = pov
-        }
+        scheduleBuild(into: scnView, coordinator: context.coordinator)
     }
 
-    // ── シーン構築（internal: SceneKitView互換ラッパーからも使用）──
+    private func scheduleBuild(into scnView: SCNView, coordinator: Coordinator) {
+        // 前回のタスクをキャンセル
+        coordinator.buildTask?.cancel()
 
-    func buildScene() -> SCNScene {
+        // ① メインスレッドでCoreDataから値を読み取る（ここは安全）
+        let stdM = makeStandardMeasurement()
+
+        let task = DispatchWorkItem {
+            // ② バックグラウンドでSCNScene構築（CoreDataオブジェクトは使わない）
+            let scene = buildSceneWith(stdM: stdM)
+
+            DispatchQueue.main.async {
+                guard !(coordinator.buildTask?.isCancelled ?? true) else { return }
+                // ③ メインスレッドでSCNViewに反映
+                let pov = scnView.pointOfView
+                if let pov = pov {
+                    scene.rootNode.addChildNode(pov)
+                    scnView.scene = scene
+                    scnView.pointOfView = pov
+                } else {
+                    let cam = makeCamera()
+                    scene.rootNode.addChildNode(cam)
+                    scnView.scene = scene
+                    scnView.pointOfView = cam
+                }
+            }
+        }
+
+        coordinator.buildTask = task
+        DispatchQueue.global(qos: .userInitiated).async(execute: task)
+    }
+    // ── シーン構築（CoreData不使用・スレッドセーフ）──
+
+    func buildSceneWith(stdM: StandardMeasurement) -> SCNScene {
         let scene = SCNScene()
         addLights(to: scene)
         addFloor(to: scene)
 
         // StandardBodyGenerator でメッシュ生成
-        let stdM = makeStandardMeasurement()
         let mesh = StandardBodyGenerator.generate(m: stdM)
 
-        // モーフィング適用
-        let finalMesh: BodyMesh
-        if let profile = measurement {
-            let engine = MorphingEngine()
-            finalMesh = engine.morph(base: mesh, measurement: profile)
-        } else {
-            finalMesh = mesh
-        }
+        // MorphingEngineはBodyMesh(純粋なSwift値型)のみ操作するのでスレッドセーフ
+        let engine = MorphingEngine()
+        let finalMesh = engine.morph(base: mesh, stdM: stdM)
 
         // ボディノード（肌色マテリアル）
-        let bodyGeo  = finalMesh.buildGeometry(theme: .skin)
+        let bodyGeo  = finalMesh.buildGeometry(theme: BodyMesh.ColorTheme.skin)
         let bodyNode = SCNNode(geometry: bodyGeo)
         bodyNode.name = "body"
-        // ウエストY=0原点 → ワールドY=0が足底になるようにオフセット
-        // 足底ローカルY = (3cm - 111cm) / 100 = -1.08m
-        // waistOffsetY = waistHeight/100 だと足底がY=-0.10mになるため +0.10m 補正
-        let floorOffset: CGFloat = 0.10   // 足底を床(Y=0)に合わせる補正
-        let waistOffsetY = CGFloat(stdM.waistHeight / 100.0) + floorOffset
+        // BodyMeshの座標系: ウエスト(床から111cm)=Y0原点
+        // ワールドY=0が床になるよう 111cm = 1.11m 上に移動
+        let waistOffsetY: CGFloat = 1.11
         bodyNode.position = SCNVector3(0, waistOffsetY, 0)
         scene.rootNode.addChildNode(bodyNode)
 
-        // パターンノード（ボディと同じオフセットを適用）
+        // パターンノード（PatternMeshBuilder内でwaistOffsetY適用済みなので追加オフセット不要）
         for placement in placements {
             let nodes = makePatternNodes(for: placement, mesh: finalMesh, stdM: stdM)
             for node in nodes {
-                node.position.y += waistOffsetY
                 scene.rootNode.addChildNode(node)
             }
         }
@@ -235,154 +263,31 @@ struct MeshSceneKitView: NSViewRepresentable {
         makePatternNodes(for: placement, mesh: mesh, stdM: stdM).first
     }
 
-    /// パターン1枚から左右ミラーを含む複数SCNNodeを生成する
+    /// パターン1枚からボディ曲面に貼り付いた複数SCNNodeを生成する（方法B）
     private func makePatternNodes(
         for placement: PartPlacement,
         mesh: BodyMesh,
         stdM: StandardMeasurement
     ) -> [SCNNode] {
         let data = placement.patternData
-        let bbox = boundingBox(of: data)
+        let bbox = PatternMeshBuilder.boundingBox(of: data)
         guard bbox.width > 1, bbox.height > 1 else { return [] }
-        guard let image = renderPatternImage(from: data, bbox: bbox) else { return [] }
+        let image = renderPatternImage(from: data, bbox: bbox)
 
-        let unitPerPx: CGFloat = 1.0 / 37.8 / 100.0   // 1px → cm → m
-        let planeW = CGFloat(bbox.width  * unitPerPx)
-        let planeH = CGFloat(bbox.height * unitPerPx)
+        // BodyMeshの座標系: ウエスト(床から111cm)=Y0原点
+        let waistOffsetY: CGFloat = 1.11
 
-        // 共通マテリアル
-        let mat = SCNMaterial()
-        mat.diffuse.contents    = image
-        mat.isDoubleSided       = true
-        mat.transparencyMode    = .default
-        mat.writesToDepthBuffer = false
-        mat.transparency        = (patternOpacity < 0.01) ? 1.0 : CGFloat(patternOpacity)
-
-        func makePlaneNode(name: String) -> SCNNode {
-            let plane = SCNPlane(width: planeW, height: planeH)
-            plane.materials = [mat]
-            let n = SCNNode(geometry: plane)
-            n.name = name
-            return n
-        }
-
-        let type = placement.part.type
-
-        // メッシュ実寸からポーズ計算（Z オフセットを 0.02m に拡大）
-        let pose = meshBasedPose(
-            for: type, mesh: mesh, stdM: stdM,
-            planeW: Float(planeW), planeH: Float(planeH)
+        return PatternMeshBuilder.build(
+            patternData: data,
+            bodyMesh: mesh,
+            partType: placement.part.type,
+            stdM: stdM,
+            waistOffsetY: waistOffsetY,
+            image: image
         )
-
-        switch type {
-        // ── 前後身頃・スカート：右半身＋左半身ミラー ──
-        case .bodiceFront, .bodiceBack, .skirtFront, .skirtBack:
-            // 右半身: 中心線(X=0)から右へ planeW/2 だけオフセット
-            let right = makePlaneNode(name: "pattern_\(type.rawValue)_R")
-            right.position    = SCNVector3(planeW / 2, pose.position.y, pose.position.z)
-            right.eulerAngles = pose.eulerAngles
-
-            // 左半身: X軸ミラー（scale.x = -1 で画像も反転）
-            let left = makePlaneNode(name: "pattern_\(type.rawValue)_L")
-            left.position    = SCNVector3(-(planeW / 2), pose.position.y, pose.position.z)
-            left.eulerAngles = pose.eulerAngles
-            left.scale       = SCNVector3(-1, 1, 1)
-            return [right, left]
-
-        // ── 袖：左腕(pose)＋右腕(X反転) ──
-        case .sleeveFront:
-            let leftArm = makePlaneNode(name: "pattern_sleeve_L")
-            leftArm.position    = pose.position          // X < 0（左腕外側）
-            leftArm.eulerAngles = pose.eulerAngles       // Y軸90°のみ
-
-            let rightArm = makePlaneNode(name: "pattern_sleeve_R")
-            rightArm.position    = SCNVector3(-pose.position.x, pose.position.y, pose.position.z)
-            rightArm.eulerAngles = SCNVector3(pose.eulerAngles.x, -pose.eulerAngles.y, 0)
-            return [leftArm, rightArm]
-
-        // ── その他：1枚 ──
-        default:
-            let node = makePlaneNode(name: "pattern_\(type.rawValue)")
-            node.position    = pose.position
-            node.eulerAngles = pose.eulerAngles
-            return [node]
-        }
     }
 
-    // ── メッシュ実寸ベースのポーズ計算 ─────────────────────
 
-    private struct Pose {
-        var position: SCNVector3
-        var eulerAngles: SCNVector3
-    }
-
-    private func meshBasedPose(
-        for type: PatternPartType,
-        mesh: BodyMesh,
-        stdM: StandardMeasurement,
-        planeW: Float, planeH: Float
-    ) -> Pose {
-        // stdM から直接ボディ座標を算出
-        // ウエスト = Y原点(0)、上方向が+Y
-
-        let wH = stdM.waistHeight       // ウエスト床高 cm
-        let h  = stdM.height            // 身長 cm
-
-        // 肩線Y（ウエスト基準）
-        // StandardBodyData の肩スライス = 床から141cm、ウエスト原点 = 111cm
-        // ローカルY = (141 - 111) / 100 = 0.30m、身長スケールで補正
-        let shoulderY = CGFloat((141.0 - 111.0) / 100.0 * Double(h / 158.0))
-        let waistY:   CGFloat = 0.0
-
-        // 前後Z: StandardBodyData の実測値ベース（bust最大rz=13.5cm, hip=13.2cm）
-        let zGap:      CGFloat = 0.025
-        let bustFrontZ = CGFloat(stdM.bust  * 0.162 / 100.0) + zGap   // ≈ bust周/6.17 = 前後半径
-        let hipFrontZ  = CGFloat(stdM.hip   * 0.145 / 100.0) + zGap
-
-        // 片側肩幅X
-        let shoulderX = CGFloat(stdM.shoulder / 2.0 / 100.0) + 0.01
-
-        let ph = CGFloat(planeH)
-
-        switch type {
-        case .bodiceFront:
-            // 中央X=0、上端を肩線に合わせる
-            return Pose(position: SCNVector3(0, shoulderY - ph * 0.5, bustFrontZ),
-                        eulerAngles: SCNVector3(0, 0, 0))
-        case .bodiceBack:
-            return Pose(position: SCNVector3(0, shoulderY - ph * 0.5, -bustFrontZ),
-                        eulerAngles: SCNVector3(0, Float.pi, 0))
-        case .sleeveFront:
-            // 肩の外側に縦置き（Y軸90°回転）、腕の傾きはなし（垂直のほうが自然）
-            let sleeveX = shoulderX + CGFloat(planeW) * 0.5
-            return Pose(position: SCNVector3(-sleeveX, shoulderY - ph * 0.5, 0),
-                        eulerAngles: SCNVector3(0, Float.pi / 2, 0))
-        case .skirtFront:
-            return Pose(position: SCNVector3(0, waistY - ph * 0.5, hipFrontZ),
-                        eulerAngles: SCNVector3(0, 0, 0))
-        case .skirtBack:
-            return Pose(position: SCNVector3(0, waistY - ph * 0.5, -hipFrontZ),
-                        eulerAngles: SCNVector3(0, Float.pi, 0))
-        case .pants:
-            return Pose(position: SCNVector3(0, waistY - ph * 0.5, hipFrontZ),
-                        eulerAngles: SCNVector3(0, 0, 0))
-        case .collar:
-            let neckZ = CGFloat(stdM.neck * 0.16 / 100.0) + zGap
-            return Pose(position: SCNVector3(0, shoulderY + 0.07, neckZ),
-                        eulerAngles: SCNVector3(Float.pi * 0.15, 0, 0))
-        case .cuff:
-            let cuffX = shoulderX + CGFloat(planeW) * 0.5
-            return Pose(position: SCNVector3(-cuffX, shoulderY - ph * 1.5, 0),
-                        eulerAngles: SCNVector3(0, Float.pi / 2, 0))
-        case .waistband:
-            let wbZ = CGFloat(stdM.waist * 0.16 / 100.0)
-            return Pose(position: SCNVector3(0, waistY, wbZ),
-                        eulerAngles: SCNVector3(Float.pi / 2, 0, 0))
-        case .other:
-            return Pose(position: SCNVector3(shoulderX * 2.2, waistY, 0),
-                        eulerAngles: SCNVector3(0, Float.pi / 2, 0))
-        }
-    }
     // ── パターン画像レンダリング ────────────────────────────
 
     private func renderPatternImage(from data: PatternData, bbox: CGRect) -> NSImage? {
@@ -445,30 +350,9 @@ struct MeshSceneKitView: NSViewRepresentable {
         return image
     }
 
-    // ── バウンディングボックス ──────────────────────────────
-
-    private func boundingBox(of data: PatternData) -> CGRect {
-        var minX = CGFloat.infinity, minY = CGFloat.infinity
-        var maxX = -CGFloat.infinity, maxY = -CGFloat.infinity
-        func expand(_ x: CGFloat, _ y: CGFloat) {
-            minX = min(minX, x); minY = min(minY, y)
-            maxX = max(maxX, x); maxY = max(maxY, y)
-        }
-        for l in data.lines  { expand(l.x1, l.y1); expand(l.x2, l.y2) }
-        for c in data.curves { for n in c.nodes { expand(n.x, n.y) } }
-        for a in data.arcs   {
-            expand(a.cx - a.radius, a.cy - a.radius)
-            expand(a.cx + a.radius, a.cy + a.radius)
-        }
-        guard minX != .infinity else { return .zero }
-        let pad: CGFloat = 20
-        return CGRect(x: minX-pad, y: minY-pad,
-                      width: maxX-minX+pad*2, height: maxY-minY+pad*2)
-    }
-
     // ── 標準計測値生成 ────────────────────────────────────
 
-    private func makeStandardMeasurement() -> StandardMeasurement {
+    func makeStandardMeasurement() -> StandardMeasurement {
         var s = StandardMeasurement()
         guard let profile = measurement else { return s }
         func v(_ id: Int) -> Float {
@@ -545,19 +429,24 @@ struct SceneKitView: NSViewRepresentable {
         v.allowsCameraControl = true
         v.autoenablesDefaultLighting = true
         v.backgroundColor = NSColor(red: 0.18, green: 0.18, blue: 0.20, alpha: 1)
-        v.scene = MeshSceneKitView(
+        // makeStandardMeasurement()はCoreDataアクセスのためメインスレッドで実行済み
+        let meshView = MeshSceneKitView(
             placements: placements,
             measurement: measurement,
             patternOpacity: patternOpacity
-        ).buildScene()
+        )
+        let stdM = meshView.makeStandardMeasurement()  // メインスレッドで安全
+        v.scene = meshView.buildSceneWith(stdM: stdM)
         return v
     }
 
     func updateNSView(_ nsView: SCNView, context: Context) {
-        nsView.scene = MeshSceneKitView(
+        let meshView = MeshSceneKitView(
             placements: placements,
             measurement: measurement,
             patternOpacity: patternOpacity
-        ).buildScene()
+        )
+        let stdM = meshView.makeStandardMeasurement()  // メインスレッドで安全
+        nsView.scene = meshView.buildSceneWith(stdM: stdM)
     }
 }
