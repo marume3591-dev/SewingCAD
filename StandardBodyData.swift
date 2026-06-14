@@ -190,7 +190,7 @@ enum StandardBodyGenerator {
         // shoulderJointR = 胴体肩rx × shoulderRatio × 0.30（腕は胴体肩幅の30%程度）
         let torsoShoulderRx: Float = 19.0 / 100.0
         let shoulderRatio: Float = m.shoulder / 38.0  // 標準肩幅38cmからの比率
-        let shoulderJointR: Float = torsoShoulderRx * shoulderRatio * 0.45
+        let shoulderJointR: Float = torsoShoulderRx * shoulderRatio * 0.22
 
         // (tは0=肩付根〜1=手首, rx, rz, region, influenceWeight)
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
@@ -275,11 +275,13 @@ enum StandardBodyGenerator {
         let ankleY:  Float = (3.0   - 111.0) / 100.0  // 床面3cm上 ≈ -1.08m
         let legLen  = crotchY - ankleY
 
-        // 股付根のX位置：胴体底断面rx=14cmの半分（7cm）にヒップ比率をかける
+        // 股付根のX位置：胴体底断面rx=14cmの中間点に配置
+        // 脚2本が左右に分かれるので中心から7cm = rx/2
         let hipRatio: Float = m.hip / 91.0
-        let hipX: Float = side * 7.0 / 100.0 * hipRatio
-        // 脚付け根半径：太もも半径の0.65倍（胴体底面rx内に収まるよう小さめに）
-        let crotchJointR: Float = thighR * 0.65
+        // 胴体底断面のモーフ後rx ≈ 14cm × hipRatio × 0.5
+        let hipX: Float = side * 14.0 / 2.0 / 100.0 * hipRatio
+        // 脚付け根半径：胴体底断面rx/2に合わせる（隙間なく収まるサイズ）
+        let crotchJointR: Float = 14.0 / 2.0 / 100.0 * hipRatio
 
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
         let slices: [Sl] = [

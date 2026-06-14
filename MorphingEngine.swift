@@ -208,9 +208,13 @@ class MorphingEngine: ObservableObject {
                 vtx.position.y = yM * (backLenRatio * (1-tAbdomen) + inseamRatio * tAbdomen)
 
             case .hip:
-                vtx.position.x += rdiff(hipDiff) * w * sign(vtx.position.x)
-                vtx.position.z += rdiff(hipDiff) * w * 0.75
-                // hip(y≈-0.12〜-0.21): inseamRatioで統一
+                // hipの上端(y≈-0.12)はabdomenと連続させる
+                // y=-0.12〜-0.15の範囲でabdomenDiffからhipDiffへ滑らかにブレンド
+                let tHip = clamp((-yM - 0.12) / 0.05, 0, 1)
+                let abdomenDiffAtBorder = waistDiff * 0.0 + hipDiff * 1.0  // abdomenの下端値
+                let hipBlendDiff = abdomenDiffAtBorder * (1 - tHip) + hipDiff * tHip
+                vtx.position.x += rdiff(hipBlendDiff) * w * sign(vtx.position.x)
+                vtx.position.z += rdiff(hipBlendDiff) * w * 0.75
                 vtx.position.y = yM * inseamRatio
 
             case .leg:
