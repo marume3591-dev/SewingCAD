@@ -175,9 +175,9 @@ enum StandardBodyGenerator {
         vertices: inout [BodyVertex],
         polygons:  inout [BodyPolygon]
     ) {
-        // 肩ライン位置（胴体の肩断面）
-        // 計測値の肩幅から腕付け根X座標を動的に計算（固定値19cmではなく体型に追従）
-        let shoulderTopY: Float = (141.0 - 111.0) / 100.0     // ≈ 0.30m
+        // 腕の付け根をy=138cm断面（rx=19cm）に合わせる
+        // y=141はrx=14cmで狭すぎるので、y=138(rx=19cm)から腕をスタートさせる
+        let shoulderTopY: Float = (138.0 - 111.0) / 100.0     // ≈ 0.27m（y=138cm）
         let shoulderX:    Float = side * m.shoulder / 2.0 / 100.0  // 肩幅の半分
 
         let armLen:   Float = m.sleeveLen / 100.0              // 腕の全長（m）
@@ -188,9 +188,11 @@ enum StandardBodyGenerator {
 
         // 胴体肩断面（y=138cm）のrx=19cmに腕付け根を合わせる
         // shoulderJointR = 胴体肩rx × shoulderRatio × 0.30（腕は胴体肩幅の30%程度）
+        // 腕付け根半径：y=138cm断面のrx=19cmにshouldeeRatioを掛けた値
+        // これで胴体肩断面の端と腕の付け根がぴったり合う
         let torsoShoulderRx: Float = 19.0 / 100.0
-        let shoulderRatio: Float = m.shoulder / 38.0  // 標準肩幅38cmからの比率
-        let shoulderJointR: Float = torsoShoulderRx * shoulderRatio * 0.22
+        let shoulderRatio: Float = m.shoulder / 38.0
+        let shoulderJointR: Float = torsoShoulderRx * shoulderRatio
 
         // (tは0=肩付根〜1=手首, rx, rz, region, influenceWeight)
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)

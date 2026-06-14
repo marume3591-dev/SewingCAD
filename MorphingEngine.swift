@@ -135,8 +135,8 @@ class MorphingEngine: ObservableObject {
         // 半径差分（周長差 → 半径差: cm → m）
         func rdiff(_ diff: Float) -> Float { diff / (2 * Float.pi) / 100.0 }
 
-        // 肩付け根のY境界
-        let shoulderTopY: Float = (141.0 - 111.0) / 100.0  // 0.30m
+        // 肩付け根のY境界：y=138cm断面（腕スタート位置）
+        let shoulderTopY: Float = (138.0 - 111.0) / 100.0  // 0.27m
 
         for i in result.vertices.indices {
             var vtx = result.vertices[i]
