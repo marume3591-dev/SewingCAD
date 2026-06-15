@@ -76,15 +76,21 @@ enum StandardBodyGenerator {
         polygons:  inout [BodyPolygon],
         zones:     inout [DeformationZone]
     ) {
-        // 元の26断面スライス定義（既存コードと同一）
+        // 肩スライスのrxを計測値から動的計算
+        let shoulderRx: Float = m.shoulder / 2.0 / 100.0  // 肩幅の半分
+        let uArmR: Float = m.upperArm / (2 * Float.pi) / 100.0
+
+        // 元の26断面スライス定義
         let slices: [(y: Float, rx: Float, rz: Float, region: BodyRegion, w: Float)] = [
-            (157, 9.5,  9.5,  .neutral,   0.05),
-            (154, 9.0,  9.0,  .neutral,   0.05),
-            (150, 6.5,  6.0,  .neck,      0.6),
-            (147, 5.8,  5.5,  .neck,      0.8),
-            (144, 5.5,  5.2,  .neck,      0.9),
-            (141, 14.0, 7.5,  .shoulder,  0.8),
-            (138, 19.0, 8.5,  .shoulder,  0.9),
+            (157,  9.5,  9.5,  .neutral,   0.05),
+            (154,  9.0,  9.0,  .neutral,   0.05),
+            (150,  6.5,  6.0,  .neck,      0.6),
+            (147,  5.8,  5.5,  .neck,      0.8),
+            (144,  5.5,  5.2,  .neck,      0.9),
+            // y=141: 腕の付け根高さ。rxを肩幅/2に合わせる
+            (141,  shoulderRx * 100, 8.0,  .shoulder,  0.8),
+            // y=138: 腕本体の高さ。rxも肩幅/2
+            (138,  shoulderRx * 100, 9.0,  .shoulder,  0.9),
             (135, 20.0, 10.0, .bust,      0.7),
             (132, 20.5, 11.5, .bust,      0.8),
             (129, 20.8, 13.0, .bust,      0.95),
@@ -177,7 +183,7 @@ enum StandardBodyGenerator {
         }
     }
 
-    // ── 腕（片側9断面）────────────────────────────────────
+    // ── 腕（片側）────────────────────────────────────────
     private static func buildArm(
         m: StandardMeasurement,
         side: Float,
@@ -186,55 +192,54 @@ enum StandardBodyGenerator {
         vertices: inout [BodyVertex],
         polygons:  inout [BodyPolygon]
     ) {
-        let shoulderTopY: Float = (138.0 - 111.0) / 100.0
-        // 腕の中心X：肩幅の半分から上腕半径の0.6倍だけ内側（胴体にめり込む）
-        // これでビジュアル的なすき間がなくなる
-        let uArmR:    Float = m.upperArm  / (2 * Float.pi) / 100.0
-        let shoulderX: Float = side * (m.shoulder / 2.0 / 100.0 - uArmR * 0.6)
+        let uArmR:  Float = m.upperArm / (2 * Float.pi) / 100.0
+        let elbowR: Float = uArmR * 0.78
+        let wristR: Float = m.wrist / (2 * Float.pi) / 100.0
+        let armLen: Float = m.sleeveLen / 100.0
 
-        let armLen:   Float = m.sleeveLen / 100.0
-        let elbowR:   Float = uArmR * 0.78
-        let wristR:   Float = m.wrist / (2 * Float.pi) / 100.0
+        // 腕の開始Y: y=141cm（胴体肩最上部）
+        let shoulderTopY: Float = (141.0 - 111.0) / 100.0  // 0.30m
+
+        // 腕の中心X: 肩幅/2
+        // ただし胴体y=141cmのrx=14cmより外なので、
+        // 腕を胴体にめり込ませてすき間をなくす
+        // shoulderX = 肩幅/2 - uArmR（腕半径分だけ内側）
+        let shoulderX: Float = side * (m.shoulder / 2.0 / 100.0 - uArmR * 0.8)
 
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
         let slices: [Sl] = [
-            (0.00, uArmR * 1.15,  uArmR * 1.05,  0.5),
-            (0.08, uArmR * 1.10,  uArmR * 1.00,  0.7),
-            (0.20, uArmR,         uArmR * 0.95,  0.6),
-            (0.35, uArmR * 0.94,  uArmR * 0.90,  0.5),
-            (0.50, elbowR * 1.10, elbowR * 0.95, 0.4),
-            (0.63, elbowR,        elbowR * 0.88, 0.4),
-            (0.76, wristR * 1.28, wristR * 1.15, 0.35),
-            (0.90, wristR * 1.08, wristR * 1.02, 0.3),
-            (1.00, wristR,        wristR * 0.88, 0.25),
+            (0.00, uArmR * 1.20, uArmR * 1.10, 0.5),
+            (0.08, uArmR * 1.10, uArmR * 1.00, 0.7),
+            (0.20, uArmR,        uArmR * 0.95,  0.6),
+            (0.35, uArmR * 0.94, uArmR * 0.90,  0.5),
+            (0.50, elbowR * 1.10,elbowR * 0.95, 0.4),
+            (0.63, elbowR,       elbowR * 0.88, 0.4),
+            (0.76, wristR * 1.28,wristR * 1.15, 0.35),
+            (0.90, wristR * 1.08,wristR * 1.02, 0.3),
+            (1.00, wristR,       wristR * 0.88, 0.25),
         ]
 
         let seg  = 16
         let base = vertices.count
 
         for (i, sl) in slices.enumerated() {
-            let t       = sl.t
-            let slopeX: Float = side * t * (m.shoulder / 100.0) * 0.04
-            let xPos    = shoulderX + slopeX
-            let yPos    = shoulderTopY - t * armLen
-            let zPos: Float = 0.010 * (1 - t)
+            let t    = sl.t
+            let xPos = shoulderX + side * t * 0.020  // 下に行くにつれ外側へ
+            let yPos = shoulderTopY - t * armLen
+            let zPos: Float = 0.008 * (1 - t)
 
-            let uRow = Float(i) / Float(slices.count - 1)
             for vi in 0..<seg {
                 let angle = 2 * Float.pi * Float(vi) / Float(seg)
                 vertices.append(BodyVertex(
-                    position: SIMD3(xPos + cos(angle) * sl.rx,
-                                    yPos,
-                                    zPos + sin(angle) * sl.rz),
+                    position: SIMD3(xPos + cos(angle) * sl.rx, yPos, zPos + sin(angle) * sl.rz),
                     normal:   SIMD3(cos(angle), 0, sin(angle)),
-                    region:   .shoulder,
-                    influenceWeight: sl.w,
-                    uv: SIMD2(Float(vi) / Float(seg), uRow)
+                    region:   .shoulder, influenceWeight: sl.w,
+                    uv: SIMD2(Float(vi) / Float(seg), Float(i) / Float(slices.count - 1))
                 ))
             }
         }
 
-        // 腕スライス間のポリゴン
+        // スライス間ポリゴン
         for si in 0..<(slices.count - 1) {
             for vi in 0..<seg {
                 let next = (vi + 1) % seg
@@ -248,9 +253,8 @@ enum StandardBodyGenerator {
         // 手首キャップ
         let capIdx   = vertices.count
         let lastBase = base + (slices.count - 1) * seg
-        let wristSlopeX: Float = side * (m.shoulder / 100.0) * 0.04
         vertices.append(BodyVertex(
-            position: SIMD3(shoulderX + wristSlopeX, shoulderTopY - armLen, 0.0),
+            position: SIMD3(shoulderX + side * 0.020, shoulderTopY - armLen, 0),
             normal: SIMD3(0, -1, 0), region: .shoulder, influenceWeight: 0.2,
             uv: SIMD2(0.5, 1.0)
         ))
