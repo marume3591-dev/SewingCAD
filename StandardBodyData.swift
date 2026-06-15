@@ -177,47 +177,47 @@ enum StandardBodyGenerator {
         }
     }
 
-    // ── 腕（片側9断面）+ 胴体肩リングとのブリッジ接続 ────────
+    // ── 腕（片側9断面）────────────────────────────────────
     private static func buildArm(
         m: StandardMeasurement,
         side: Float,
-        shoulderRingBase: Int,  // 胴体y=138cm断面の頂点開始インデックス
-        ringSegments: Int,      // 胴体リングの頂点数(24)
+        shoulderRingBase: Int,
+        ringSegments: Int,
         vertices: inout [BodyVertex],
         polygons:  inout [BodyPolygon]
     ) {
         let shoulderTopY: Float = (138.0 - 111.0) / 100.0
-        let shoulderX:    Float = side * m.shoulder / 2.0 / 100.0
+        // 腕の中心X：肩幅の半分から上腕半径の0.6倍だけ内側（胴体にめり込む）
+        // これでビジュアル的なすき間がなくなる
+        let uArmR:    Float = m.upperArm  / (2 * Float.pi) / 100.0
+        let shoulderX: Float = side * (m.shoulder / 2.0 / 100.0 - uArmR * 0.6)
 
         let armLen:   Float = m.sleeveLen / 100.0
-        let uArmR:    Float = m.upperArm  / (2 * Float.pi) / 100.0
         let elbowR:   Float = uArmR * 0.78
         let wristR:   Float = m.wrist / (2 * Float.pi) / 100.0
-        let shoulderJointR: Float = uArmR * 1.3
 
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
         let slices: [Sl] = [
-            (0.00, shoulderJointR,    shoulderJointR * 0.9,  0.4),
-            (0.06, uArmR * 1.08,      uArmR * 1.00,          0.7),
-            (0.18, uArmR,             uArmR * 0.95,          0.6),
-            (0.33, uArmR * 0.94,      uArmR * 0.90,          0.5),
-            (0.50, elbowR * 1.10,     elbowR * 0.95,         0.4),
-            (0.63, elbowR,            elbowR * 0.88,         0.4),
-            (0.76, wristR * 1.28,     wristR * 1.15,         0.35),
-            (0.90, wristR * 1.08,     wristR * 1.02,         0.3),
-            (1.00, wristR,            wristR * 0.88,         0.25),
+            (0.00, uArmR * 1.15,  uArmR * 1.05,  0.5),
+            (0.08, uArmR * 1.10,  uArmR * 1.00,  0.7),
+            (0.20, uArmR,         uArmR * 0.95,  0.6),
+            (0.35, uArmR * 0.94,  uArmR * 0.90,  0.5),
+            (0.50, elbowR * 1.10, elbowR * 0.95, 0.4),
+            (0.63, elbowR,        elbowR * 0.88, 0.4),
+            (0.76, wristR * 1.28, wristR * 1.15, 0.35),
+            (0.90, wristR * 1.08, wristR * 1.02, 0.3),
+            (1.00, wristR,        wristR * 0.88, 0.25),
         ]
 
-        // 腕の頂点数は胴体リングと同じ24に統一（ブリッジしやすくする）
-        let seg  = ringSegments  // 24
+        let seg  = 16
         let base = vertices.count
 
         for (i, sl) in slices.enumerated() {
             let t       = sl.t
-            let slopeX: Float = side * t * (m.shoulder / 100.0) * 0.05
+            let slopeX: Float = side * t * (m.shoulder / 100.0) * 0.04
             let xPos    = shoulderX + slopeX
             let yPos    = shoulderTopY - t * armLen
-            let zPos: Float = 0.012 * (1 - t)
+            let zPos: Float = 0.010 * (1 - t)
 
             let uRow = Float(i) / Float(slices.count - 1)
             for vi in 0..<seg {
@@ -245,70 +245,10 @@ enum StandardBodyGenerator {
             }
         }
 
-        // ── 胴体肩リング → 腕付け根リングのブリッジ接続 ──────
-        // 胴体y=138cm断面(24頂点, 中心X=0, rx=19cm)の外側半分を
-        // 腕付け根(24頂点, 中心X=±19cm, r=5.6cm)につなぐ
-        //
-        // 胴体リングの頂点: angle = 2π*vi/24
-        //   vi=0  → X=+19cm (右端), Z=0
-        //   vi=6  → X=0, Z=+8.5cm (前)
-        //   vi=12 → X=-19cm (左端), Z=0
-        //   vi=18 → X=0, Z=-8.5cm (後)
-        //
-        // 右腕(side=+1): 胴体右半分 vi=18〜6 (X+側) を腕につなぐ
-        // 左腕(side=-1): 胴体左半分 vi=6〜18 (X-側) を腕につなぐ
-
-        let armRing0 = base  // 腕付け根リング開始
-
-        // 胴体外側半分(13頂点)と腕付け根(24頂点)を最近傍でつなぐ
-        // 胴体: vi=0(X+端)を中心にsideに応じて前後12頂点
-        // 腕:   vi=0(X+方向)を中心に前後12頂点
-
-        // 胴体リングで腕側（外側）に対応する頂点範囲
-        // right arm: torso vi=18..24,0..6 (X+側の外半分)
-        // left arm:  torso vi=6..18 (X-側の外半分)
-        let halfSeg = seg / 2  // 12
-
-        for vi in 0...halfSeg {
-            // 胴体リングの外側頂点インデックス
-            let tvi: Int
-            if side > 0 {
-                // 右腕: vi=0が右端(X+), 前後に6頂点ずつ
-                tvi = ((seg - halfSeg/2 + vi) % seg)
-            } else {
-                // 左腕: vi=12が左端(X-), 前後に6頂点ずつ
-                tvi = ((halfSeg/2 + vi) % seg)
-            }
-            let tnext_vi = vi < halfSeg ? vi + 1 : vi
-
-            let tvi_next: Int
-            if side > 0 {
-                tvi_next = ((seg - halfSeg/2 + tnext_vi) % seg)
-            } else {
-                tvi_next = ((halfSeg/2 + tnext_vi) % seg)
-            }
-
-            // 腕リングの対応頂点（0が外端、前後に広がる）
-            let avi      = (vi * seg / (halfSeg + 1)) % seg
-            let avi_next = (tnext_vi * seg / (halfSeg + 1)) % seg
-
-            let t0 = shoulderRingBase + tvi
-            let t1 = shoulderRingBase + tvi_next
-            let a0 = armRing0 + avi
-            let a1 = armRing0 + avi_next
-
-            if vi < halfSeg && a0 != a1 {
-                polygons.append(BodyPolygon(v0: t0, v1: a0, v2: a1))
-                polygons.append(BodyPolygon(v0: t0, v1: a1, v2: t1))
-            } else if vi < halfSeg {
-                polygons.append(BodyPolygon(v0: t0, v1: a0, v2: t1))
-            }
-        }
-
         // 手首キャップ
         let capIdx   = vertices.count
         let lastBase = base + (slices.count - 1) * seg
-        let wristSlopeX: Float = side * (m.shoulder / 100.0) * 0.05
+        let wristSlopeX: Float = side * (m.shoulder / 100.0) * 0.04
         vertices.append(BodyVertex(
             position: SIMD3(shoulderX + wristSlopeX, shoulderTopY - armLen, 0.0),
             normal: SIMD3(0, -1, 0), region: .shoulder, influenceWeight: 0.2,
