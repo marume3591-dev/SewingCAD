@@ -186,13 +186,9 @@ enum StandardBodyGenerator {
         let wristR:   Float = m.wrist    / (2 * Float.pi) / 100.0
         let shldR:    Float = (m.bust    / (2 * Float.pi) / 100.0) * 0.22
 
-        // 胴体肩断面（y=138cm）のrx=19cmに腕付け根を合わせる
-        // shoulderJointR = 胴体肩rx × shoulderRatio × 0.30（腕は胴体肩幅の30%程度）
-        // 腕付け根半径：y=138cm断面のrx=19cmにshouldeeRatioを掛けた値
-        // これで胴体肩断面の端と腕の付け根がぴったり合う
-        let torsoShoulderRx: Float = 19.0 / 100.0
-        let shoulderRatio: Float = m.shoulder / 38.0
-        let shoulderJointR: Float = torsoShoulderRx * shoulderRatio
+        // 腕付け根半径：上腕の太さ × 1.3（やや大きめで自然につながる）
+        // 胴体肩幅rx=19cmとは別物。腕の断面サイズが基準。
+        let shoulderJointR: Float = uArmR * 1.3
 
         // (tは0=肩付根〜1=手首, rx, rz, region, influenceWeight)
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
