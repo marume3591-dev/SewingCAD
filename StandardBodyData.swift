@@ -214,9 +214,12 @@ enum StandardBodyGenerator {
 
         for (i, sl) in slices.enumerated() {
             let t    = sl.t
-            let xPos = shoulderX + side * t * 0.015  // 下に行くにつれ外側へ
+            // 腕を外側斜め下に伸ばす（Tポーズ寄り）
+            // X方向: 肩から手首にかけて armLen*0.35 外側（≈20cm）
+            // Y方向: そのまま下（armLen分）
+            let xPos = shoulderX + side * t * armLen * 0.35
             let yPos = shoulderTopY - t * armLen
-            let zPos: Float = 0.008 * (1 - t)
+            let zPos: Float = 0.010 * (1 - t)  // 肩付け根は少し前方
 
             for vi in 0..<seg {
                 let angle = 2 * Float.pi * Float(vi) / Float(seg)
@@ -244,8 +247,8 @@ enum StandardBodyGenerator {
         let capIdx   = vertices.count
         let lastBase = base + (slices.count - 1) * seg
         vertices.append(BodyVertex(
-            position: SIMD3(shoulderX + side * 0.015, shoulderTopY - armLen, 0),
-            normal: SIMD3(0, -1, 0), region: .shoulder, influenceWeight: 0.2,
+            position: SIMD3(shoulderX + side * armLen * 0.35, shoulderTopY - armLen, 0),
+            normal: simd_normalize(SIMD3<Float>(side, -0.5, 0)), region: .shoulder, influenceWeight: 0.2,
             uv: SIMD2(0.5, 1.0)
         ))
         for vi in 0..<seg {
