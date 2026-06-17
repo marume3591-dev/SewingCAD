@@ -178,13 +178,13 @@ enum StandardBodyGenerator {
     }
 
     // ── 腕（片側）────────────────────────────────────────
-    // 胴体y=138断面の外側頂点を「腕の付け根」として共有し、
-    // そこから腕断面を積み重ねてシームレスに接続する
+    // 胴体y=138断面（ringSegments=24）の外側半分（12頂点）を
+    // 腕の付け根として直接使い、そこから腕を生やす
     private static func buildArm(
         m: StandardMeasurement,
         side: Float,
-        shoulderRingBase: Int,  // 胴体y=138断面の頂点開始インデックス
-        ringSegments: Int,      // = 24
+        shoulderRingBase: Int,
+        ringSegments: Int,
         vertices: inout [BodyVertex],
         polygons:  inout [BodyPolygon]
     ) {
@@ -193,23 +193,19 @@ enum StandardBodyGenerator {
         let wristR: Float = m.wrist / (2 * Float.pi) / 100.0
         let armLen: Float = m.sleeveLen / 100.0
 
-        // 腕の方向ベクトル（斜め外下）
-        let armDirX: Float = side * 0.35   // X方向（外向き）
-        let armDirY: Float = -1.0           // Y方向（下向き）
-        let armLen3D: Float = sqrt(armDirX * armDirX + armDirY * armDirY)
-        let armDX = armDirX / armLen3D * armLen  // 手首のX移動量
-        let armDY = armDirY / armLen3D * armLen  // 手首のY移動量
+        // 腕の方向：斜め外下
+        let armDirX: Float = side * 0.35
+        let armDirY: Float = -1.0
+        let armLen3D = sqrt(armDirX * armDirX + armDirY * armDirY)
+        let armDX = armDirX / armLen3D * armLen
+        let armDY = armDirY / armLen3D * armLen
 
-        // 腕中心軸：胴体y=138のvi=0(right)またはvi=12(left)の座標から出発
-        // 右腕: vi=0 → X=+19cm, Z=0
-        // 左腕: vi=12 → X=-19cm, Z=0（ただしringSegments=24でvi=12はX=-19cm）
-        let startY: Float = (138.0 - 111.0) / 100.0  // 0.27m
+        let startY: Float = (138.0 - 111.0) / 100.0
         let startX: Float = side * 19.0 / 100.0
 
-        // 腕断面スライス（t=0は付け根、t=1は手首）
+        // 腕スライス（t=0.0を除く：付け根は胴体頂点を流用）
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
         let slices: [Sl] = [
-            (0.00, uArmR * 1.20, uArmR * 1.10, 0.5),
             (0.12, uArmR * 1.08, uArmR * 1.00, 0.7),
             (0.25, uArmR,        uArmR * 0.95,  0.6),
             (0.38, uArmR * 0.94, uArmR * 0.90,  0.5),
@@ -220,15 +216,16 @@ enum StandardBodyGenerator {
             (1.00, wristR,       wristR * 0.88, 0.25),
         ]
 
-        let seg  = 16
+        // 腕リングは胴体と同じ24頂点を使う
+        let seg  = ringSegments  // 24
         let base = vertices.count
 
-        // 腕スライス頂点を生成（t=0から始まる全スライス）
-        for (i, sl) in slices.enumerated() {
-            let t    = sl.t
-            let cx   = startX + armDX * t   // 腕中心のX
-            let cy   = startY + armDY * t   // 腕中心のY
-            let cz: Float = 0.010 * (1 - t) // 少し前方
+        // 腕スライス頂点を生成（付け根はなし、t=0.12から）
+        for (_, sl) in slices.enumerated() {
+            let t  = sl.t
+            let cx = startX + armDX * t
+            let cy = startY + armDY * t
+            let cz: Float = 0.010 * (1 - t)
 
             for vi in 0..<seg {
                 let angle = 2 * Float.pi * Float(vi) / Float(seg)
@@ -236,8 +233,26 @@ enum StandardBodyGenerator {
                     position: SIMD3(cx + cos(angle) * sl.rx, cy, cz + sin(angle) * sl.rz),
                     normal:   SIMD3(cos(angle), 0, sin(angle)),
                     region:   .shoulder, influenceWeight: sl.w,
-                    uv: SIMD2(Float(vi) / Float(seg), Float(i) / Float(slices.count - 1))
+                    uv: SIMD2(Float(vi) / Float(seg), sl.t)
                 ))
+            }
+        }
+
+        // 胴体y=138断面（shoulderRingBase）→ 腕最初のスライス（base）
+        // 胴体24頂点と腕24頂点を1対1でつなぐ
+        for vi in 0..<seg {
+            let next = (vi + 1) % seg
+            let t0 = shoulderRingBase + vi
+            let t1 = shoulderRingBase + next
+            let a0 = base + vi
+            let a1 = base + next
+            // 右腕(side>0): 反時計回り, 左腕(side<0): 時計回り
+            if side > 0 {
+                polygons.append(BodyPolygon(v0: t0, v1: a0, v2: a1))
+                polygons.append(BodyPolygon(v0: t0, v1: a1, v2: t1))
+            } else {
+                polygons.append(BodyPolygon(v0: t0, v1: a1, v2: a0))
+                polygons.append(BodyPolygon(v0: t0, v1: t1, v2: a1))
             }
         }
 
@@ -263,46 +278,6 @@ enum StandardBodyGenerator {
         ))
         for vi in 0..<seg {
             polygons.append(BodyPolygon(v0: capIdx, v1: lastBase + vi, v2: lastBase + (vi+1) % seg))
-        }
-
-        // ── 胴体y=138断面 → 腕付け根のブリッジ ──────────────
-        // 胴体外側（右腕: vi=21〜3, 左腕: vi=9〜15）の頂点と
-        // 腕付け根（base+0〜seg-1）を三角形でつなぐ
-
-        // 胴体側: 外側7頂点（X+側またはX-側）
-        // 右腕(side>0): vi=21,22,23,0,1,2,3 → X>0の外半分
-        // 左腕(side<0): vi=9,10,11,12,13,14,15 → X<0の外半分
-        let torsoStart = side > 0 ? ringSegments - 3 : ringSegments / 2 - 3
-        let torsoCount = 7  // 胴体外側7頂点
-
-        // 腕付け根外側: 腕vi=0がX+方向（angle=0）
-        // 右腕はseg/2の左半分（前後方向）が胴体側を向く
-        let armHalf = seg / 2  // 8頂点
-
-        for i in 0..<(torsoCount - 1) {
-            let ti0 = shoulderRingBase + (torsoStart + i + ringSegments) % ringSegments
-            let ti1 = shoulderRingBase + (torsoStart + i + 1 + ringSegments) % ringSegments
-
-            let ai0 = base + (i * armHalf / (torsoCount - 1)) % seg
-            let ai1 = base + ((i + 1) * armHalf / (torsoCount - 1)) % seg
-
-            if ai0 != ai1 {
-                if side > 0 {
-                    // 右腕：外向き法線（反時計回り）
-                    polygons.append(BodyPolygon(v0: ti0, v1: ai0, v2: ai1))
-                    polygons.append(BodyPolygon(v0: ti0, v1: ai1, v2: ti1))
-                } else {
-                    // 左腕：巻き順を逆にして法線を外向きに
-                    polygons.append(BodyPolygon(v0: ti0, v1: ai1, v2: ai0))
-                    polygons.append(BodyPolygon(v0: ti0, v1: ti1, v2: ai1))
-                }
-            } else {
-                if side > 0 {
-                    polygons.append(BodyPolygon(v0: ti0, v1: ai0, v2: ti1))
-                } else {
-                    polygons.append(BodyPolygon(v0: ti0, v1: ti1, v2: ai0))
-                }
-            }
         }
     }
 
