@@ -115,11 +115,40 @@ enum StandardBodyGenerator {
             let rxM  = slice.rx / 100.0
             let rzM  = slice.rz / 100.0
             let uRow = Float(si) / Float(totalRings - 1)
+
+            // 乳房の形状パラメータ
+            // バスト断面（y=135〜123cm）の前面（Z+）に膨らみを追加
+            let isBustSlice = slice.region == .bust
+            // 乳房の中心は左右に分かれる（X=±バスト幅の30%）
+            let bustCenterX: Float = rxM * 0.30
+            // 膨らみ量：バスト半径の20%程度
+            let breastBulge: Float = isBustSlice ? rzM * 0.25 * slice.w : 0
+
             for vi in 0..<ringSegments {
                 let angle = 2 * Float.pi * Float(vi) / Float(ringSegments)
+                let cosA  = cos(angle)
+                let sinA  = sin(angle)   // Z方向（正=前面）
+
+                var px = cosA * rxM
+                var pz = sinA * rzM
+
+                // 前面（sinA > 0）の胸部スライスに乳房の膨らみを追加
+                if isBustSlice && sinA > 0 {
+                    // 左右の乳房中心からの距離に基づいてガウス型の膨らみ
+                    let frontFactor = sinA  // 前面ほど強く（0〜1）
+                    // 左乳房（X < 0）と右乳房（X > 0）
+                    let distFromLeftCenter  = px + bustCenterX
+                    let distFromRightCenter = px - bustCenterX
+                    let sigma: Float = rxM * 0.40  // 乳房の広がり
+                    let leftGauss  = exp(-(distFromLeftCenter  * distFromLeftCenter)  / (2 * sigma * sigma))
+                    let rightGauss = exp(-(distFromRightCenter * distFromRightCenter) / (2 * sigma * sigma))
+                    let breastFactor = max(leftGauss, rightGauss)
+                    pz += breastBulge * frontFactor * breastFactor
+                }
+
                 vertices.append(BodyVertex(
-                    position: SIMD3(cos(angle) * rxM, yM, sin(angle) * rzM),
-                    normal:   SIMD3(cos(angle), 0, sin(angle)),
+                    position: SIMD3(px, yM, pz),
+                    normal:   SIMD3(cosA, 0, sinA),
                     region:   slice.region,
                     influenceWeight: slice.w,
                     uv: SIMD2(Float(vi) / Float(ringSegments), uRow)
