@@ -283,15 +283,25 @@ enum StandardBodyGenerator {
             let ti0 = shoulderRingBase + (torsoStart + i + ringSegments) % ringSegments
             let ti1 = shoulderRingBase + (torsoStart + i + 1 + ringSegments) % ringSegments
 
-            // 腕付け根の対応頂点（胴体外側7頂点 → 腕外側8頂点にマッピング）
             let ai0 = base + (i * armHalf / (torsoCount - 1)) % seg
             let ai1 = base + ((i + 1) * armHalf / (torsoCount - 1)) % seg
 
             if ai0 != ai1 {
-                polygons.append(BodyPolygon(v0: ti0, v1: ai0, v2: ai1))
-                polygons.append(BodyPolygon(v0: ti0, v1: ai1, v2: ti1))
+                if side > 0 {
+                    // 右腕：外向き法線（反時計回り）
+                    polygons.append(BodyPolygon(v0: ti0, v1: ai0, v2: ai1))
+                    polygons.append(BodyPolygon(v0: ti0, v1: ai1, v2: ti1))
+                } else {
+                    // 左腕：巻き順を逆にして法線を外向きに
+                    polygons.append(BodyPolygon(v0: ti0, v1: ai1, v2: ai0))
+                    polygons.append(BodyPolygon(v0: ti0, v1: ti1, v2: ai1))
+                }
             } else {
-                polygons.append(BodyPolygon(v0: ti0, v1: ai0, v2: ti1))
+                if side > 0 {
+                    polygons.append(BodyPolygon(v0: ti0, v1: ai0, v2: ti1))
+                } else {
+                    polygons.append(BodyPolygon(v0: ti0, v1: ti1, v2: ai0))
+                }
             }
         }
     }
