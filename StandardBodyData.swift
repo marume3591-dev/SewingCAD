@@ -117,12 +117,13 @@ enum StandardBodyGenerator {
             let uRow = Float(si) / Float(totalRings - 1)
 
             // 乳房の形状パラメータ
-            // バスト断面（y=135〜123cm）の前面（Z+）に膨らみを追加
             let isBustSlice = slice.region == .bust
-            // 乳房の中心は左右に分かれる（X=±バスト幅の30%）
-            let bustCenterX: Float = rxM * 0.30
-            // 膨らみ量：バスト半径の20%程度
-            let breastBulge: Float = isBustSlice ? rzM * 0.25 * slice.w : 0
+            // カップ差から膨らみ量を計算（bust - underBust）
+            let cupDiff: Float = max(0, m.bust - m.underBust)  // 例: 83-72=11cm
+            let cupBulge: Float = cupDiff / 100.0 * 0.6        // cmをmに変換して係数
+            let breastBulge: Float = isBustSlice ? (rzM * 0.15 + cupBulge) * slice.w : 0
+            // 乳房中心X：バスト幅の25%（左右に分かれる）
+            let bustCenterX: Float = rxM * 0.25
 
             for vi in 0..<ringSegments {
                 let angle = 2 * Float.pi * Float(vi) / Float(ringSegments)
@@ -157,6 +158,8 @@ enum StandardBodyGenerator {
         }
 
         for si in 0..<(totalRings - 1) {
+            // y=141→y=138（si=5）は腕が接続するため胴体ポリゴン不要
+            if si == 5 { continue }
             for vi in 0..<ringSegments {
                 let next  = (vi + 1) % ringSegments
                 let b0 = baseIndex + si * ringSegments
