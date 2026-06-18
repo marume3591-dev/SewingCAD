@@ -158,8 +158,6 @@ enum StandardBodyGenerator {
         }
 
         for si in 0..<(totalRings - 1) {
-            // y=141→y=138（si=5）は腕が接続するため胴体ポリゴン不要
-            if si == 5 { continue }
             for vi in 0..<ringSegments {
                 let next  = (vi + 1) % ringSegments
                 let b0 = baseIndex + si * ringSegments
