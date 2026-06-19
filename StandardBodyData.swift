@@ -269,19 +269,31 @@ enum StandardBodyGenerator {
         }
 
         // 胴体y=138断面（shoulderRingBase）→ 腕最初のスライス（base）
-        // 腕の外側半分のみ接続（内側は胴体と腕が重なる部分なので不要）
-        // 右腕(side>0): vi=0がX+端（外側）、vi=6,18が前後
-        // 胴体リングvi=0〜11が右外側（X>0）、vi=12〜23が左外側（X<0）
-        let outerStart = side > 0 ? 0 : seg / 2    // 右腕=0, 左腕=12
-        let outerEnd   = side > 0 ? seg / 2 : seg  // 右腕=12, 左腕=24
+        // 腕の外側半分のみ接続（X+側=右腕外側、X-側=左腕外側）
+        //
+        // 胴体リングの頂点X座標（vi=0がX+端=+19cm）:
+        //   右外側(X+): vi=0〜6, vi=19〜23  → X > 0
+        //   左外側(X-): vi=7〜17            → X < 0
+        //
+        // 右腕(side>0): vi=0〜6 と vi=19〜23 を接続
+        // 左腕(side<0): vi=7〜17 を接続
 
-        for vi in outerStart..<outerEnd {
-            let next = (vi + 1) % seg
+        let bridgeIndices: [Int]
+        if side > 0 {
+            // 右腕外側: vi=19,20,21,22,23,0,1,2,3,4,5,6
+            bridgeIndices = Array(19..<seg) + Array(0..<7)
+        } else {
+            // 左腕外側: vi=7,8,9,10,11,12,13,14,15,16,17
+            bridgeIndices = Array(7..<18)
+        }
+
+        for i in 0..<(bridgeIndices.count - 1) {
+            let vi   = bridgeIndices[i]
+            let next = bridgeIndices[i + 1]
             let t0 = shoulderRingBase + vi
             let t1 = shoulderRingBase + next
             let a0 = base + vi
             let a1 = base + next
-            // 左右共通：同じ巻き順
             polygons.append(BodyPolygon(v0: t0, v1: a0, v2: a1))
             polygons.append(BodyPolygon(v0: t0, v1: a1, v2: t1))
         }
