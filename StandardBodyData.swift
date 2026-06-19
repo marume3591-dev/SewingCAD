@@ -269,21 +269,21 @@ enum StandardBodyGenerator {
         }
 
         // 胴体y=138断面（shoulderRingBase）→ 腕最初のスライス（base）
-        // 胴体24頂点と腕24頂点を1対1でつなぐ
-        for vi in 0..<seg {
+        // 腕の外側半分のみ接続（内側は胴体と腕が重なる部分なので不要）
+        // 右腕(side>0): vi=0がX+端（外側）、vi=6,18が前後
+        // 胴体リングvi=0〜11が右外側（X>0）、vi=12〜23が左外側（X<0）
+        let outerStart = side > 0 ? 0 : seg / 2    // 右腕=0, 左腕=12
+        let outerEnd   = side > 0 ? seg / 2 : seg  // 右腕=12, 左腕=24
+
+        for vi in outerStart..<outerEnd {
             let next = (vi + 1) % seg
             let t0 = shoulderRingBase + vi
             let t1 = shoulderRingBase + next
             let a0 = base + vi
             let a1 = base + next
-            // 右腕(side>0): 反時計回り, 左腕(side<0): 時計回り
-            if side > 0 {
-                polygons.append(BodyPolygon(v0: t0, v1: a0, v2: a1))
-                polygons.append(BodyPolygon(v0: t0, v1: a1, v2: t1))
-            } else {
-                polygons.append(BodyPolygon(v0: t0, v1: a1, v2: a0))
-                polygons.append(BodyPolygon(v0: t0, v1: t1, v2: a1))
-            }
+            // 左右共通：同じ巻き順
+            polygons.append(BodyPolygon(v0: t0, v1: a0, v2: a1))
+            polygons.append(BodyPolygon(v0: t0, v1: a1, v2: t1))
         }
 
         // 腕スライス間ポリゴン
