@@ -120,10 +120,10 @@ enum StandardBodyGenerator {
             let isBustSlice = slice.region == .bust
             // カップ差から膨らみ量を計算（bust - underBust）
             let cupDiff: Float = max(0, m.bust - m.underBust)  // 例: 83-72=11cm
-            let cupBulge: Float = cupDiff / 100.0 * 0.6        // cmをmに変換して係数
-            let breastBulge: Float = isBustSlice ? (rzM * 0.15 + cupBulge) * slice.w : 0
-            // 乳房中心X：バスト幅の25%（左右に分かれる）
-            let bustCenterX: Float = rxM * 0.25
+            let cupBulge: Float = cupDiff / 100.0 * 0.15       // 係数を0.6→0.15に削減
+            let breastBulge: Float = isBustSlice ? (rzM * 0.08 + cupBulge) * slice.w : 0
+            // 乳房中心X：バスト幅の20%（左右に分かれる）
+            let bustCenterX: Float = rxM * 0.20
 
             for vi in 0..<ringSegments {
                 let angle = 2 * Float.pi * Float(vi) / Float(ringSegments)
