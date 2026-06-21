@@ -199,22 +199,20 @@ class MorphingEngine: ObservableObject {
                 vtx.position.y = yM * (backLenRatio * (1-tWaist) + inseamRatio * tWaist)
 
             case .abdomen:
-                // abdomenはwaistとhipの間なのでXZ変形もブレンドして滑らかにする
                 let tAbdomenXZ = clamp((-yM - 0.03) / 0.09, 0, 1)
                 let abdomenDiff = waistDiff * (1 - tAbdomenXZ) + hipDiff * tAbdomenXZ
                 vtx.position.x += rdiff(abdomenDiff) * w * 0.65 * sign(vtx.position.x)
-                vtx.position.z += rdiff(abdomenDiff) * w * 0.65
+                // Z方向は控えめに（腰の突き出し防止）
+                vtx.position.z += rdiff(abdomenDiff) * w * 0.35
                 let tAbdomen = clamp((-yM - 0.03) / 0.09, 0, 1)
                 vtx.position.y = yM * (backLenRatio * (1-tAbdomen) + inseamRatio * tAbdomen)
 
             case .hip:
-                // hipの上端(y≈-0.12)はabdomenと連続させる
-                // y=-0.12〜-0.15の範囲でabdomenDiffからhipDiffへ滑らかにブレンド
                 let tHip = clamp((-yM - 0.12) / 0.05, 0, 1)
-                let abdomenDiffAtBorder = waistDiff * 0.0 + hipDiff * 1.0  // abdomenの下端値
-                let hipBlendDiff = abdomenDiffAtBorder * (1 - tHip) + hipDiff * tHip
+                let hipBlendDiff = hipDiff * tHip
                 vtx.position.x += rdiff(hipBlendDiff) * w * sign(vtx.position.x)
-                vtx.position.z += rdiff(hipBlendDiff) * w * 0.75
+                // hipのZ変形も控えめに
+                vtx.position.z += rdiff(hipBlendDiff) * w * 0.45
                 vtx.position.y = yM * inseamRatio
 
             case .leg:
