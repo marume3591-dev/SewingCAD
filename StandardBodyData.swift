@@ -57,8 +57,17 @@ enum StandardBodyGenerator {
                      ringSegments: ringSegments,
                      vertices: &vertices, polygons: &polygons)
         }
+        // 胴体y=76cm断面（最下スライス index=26）の頂点開始インデックス
+        // スライス数27（0〜26）× 24頂点、index=26がy=76cm
+        let legRingSegments = 24
+        let legSliceIndex   = 26  // y=76cmは最後のスライス
+        let legRingBase     = legSliceIndex * legRingSegments
+
         for side: Float in [-1, 1] {
-            buildLeg(m: m, side: side, vertices: &vertices, polygons: &polygons)
+            buildLeg(m: m, side: side,
+                     legRingBase: legRingBase,
+                     ringSegments: legRingSegments,
+                     vertices: &vertices, polygons: &polygons)
         }
 
         return BodyMesh(vertices: vertices, polygons: polygons, deformationZones: zones)
@@ -97,14 +106,14 @@ enum StandardBodyGenerator {
             (114, 15.8,  8.8,  .waist,     0.9),
             (111, 15.5,  8.5,  .waist,     1.0),   // ウエスト最細
             (108, 15.5,  8.5,  .waist,     1.0),
-            // ウエスト→ヒップ：なだらかに広がる（rzは控えめ）
-            (105, 16.2,  9.0,  .abdomen,   0.75),
-            (102, 17.2,  9.5,  .abdomen,   0.75),
-            (100, 18.5, 10.0,  .abdomen,   0.80),
-            ( 99, 20.0, 10.5,  .hip,       0.85),
-            ( 96, 22.5, 11.2,  .hip,       1.0),   // ヒップ最大
-            ( 93, 22.0, 10.8,  .hip,       0.95),
-            ( 90, 21.0, 10.2,  .hip,       0.85),
+            // ウエスト→ヒップ：rzは控えめに（お腹の突き出しを防ぐ）
+            (105, 16.2,  8.7,  .abdomen,   0.75),
+            (102, 17.2,  9.0,  .abdomen,   0.75),
+            (100, 18.5,  9.5,  .abdomen,   0.80),
+            ( 99, 20.0, 10.0,  .hip,       0.85),
+            ( 96, 22.5, 10.8,  .hip,       1.0),   // ヒップ最大
+            ( 93, 22.0, 10.5,  .hip,       0.95),
+            ( 90, 21.0, 10.0,  .hip,       0.85),
             ( 86, 17.5, 10.5, .leg,       0.5),
             ( 82, 15.5,  9.5, .leg,       0.4),
             ( 76, 14.0,  8.5, .leg,       0.3),
@@ -331,6 +340,8 @@ enum StandardBodyGenerator {
     private static func buildLeg(
         m: StandardMeasurement,
         side: Float,
+        legRingBase: Int,
+        ringSegments: Int,
         vertices: inout [BodyVertex],
         polygons:  inout [BodyPolygon]
     ) {
@@ -410,6 +421,29 @@ enum StandardBodyGenerator {
         ))
         for vi in 0..<seg {
             polygons.append(BodyPolygon(v0: capIdx, v1: lastBase + vi, v2: lastBase + (vi+1) % seg))
+        }
+
+        // ── 胴体底面(y=76) → 脚付け根のブリッジ接続 ──────────
+        // 胴体底面リング(ringSegments=24, 中心X=0, rx=14cm)の
+        // 外側半分(side側)を脚付け根リングにつなぐ
+        //
+        // 胴体底面リングvi=0: X=+14cm(右端), vi=12: X=-14cm(左端)
+        // 右脚(side>0): vi=19〜6(X+側)  左脚(side<0): vi=7〜17(X-側)
+        let bridgeIndices: [Int]
+        if side > 0 {
+            bridgeIndices = Array(19..<ringSegments) + Array(0..<7)
+        } else {
+            bridgeIndices = Array(7..<18)
+        }
+        for i in 0..<(bridgeIndices.count - 1) {
+            let vi   = bridgeIndices[i]
+            let next = bridgeIndices[i + 1]
+            let t0 = legRingBase + vi
+            let t1 = legRingBase + next
+            let a0 = base + vi
+            let a1 = base + next
+            polygons.append(BodyPolygon(v0: t0, v1: a0, v2: a1))
+            polygons.append(BodyPolygon(v0: t0, v1: a1, v2: t1))
         }
     }
 }
