@@ -26,10 +26,10 @@ enum BodyRegion: String, CaseIterable {
         switch self {
         case .bust:      return SIMD3(1, 0, 0.5)   // 外側＋前方に膨らむ
         case .waist:     return SIMD3(-1, 0, -0.3)  // 内側に絞られる
-        case .hip:       return SIMD3(1, 0, 0.3)    // 外側＋やや後方に広がる
+        case .hip:       return SIMD3(1, 0, 0.2)    // 外側＋わずかに後方（過剰膨張を抑制）
         case .shoulder:  return SIMD3(1, 0.2, 0)
         case .underBust: return SIMD3(0.5, 0, 0.2)
-        case .abdomen:   return SIMD3(0.5, 0, 0.5)
+        case .abdomen:   return SIMD3(0.5, 0, 0.15)  // 前方突き出しを抑制
         case .neck:      return SIMD3(0.3, 0.1, 0)
         case .leg:       return SIMD3(0.5, -1, 0)
         case .neutral:   return SIMD3(0, 0, 0)
