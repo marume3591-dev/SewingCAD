@@ -25,11 +25,11 @@ enum BodyRegion: String, CaseIterable {
     var deformAxis: SIMD3<Float> {
         switch self {
         case .bust:      return SIMD3(1, 0, 0.5)   // 外側＋前方に膨らむ
-        case .waist:     return SIMD3(-1, 0, -0.3)  // 内側に絞られる
-        case .hip:       return SIMD3(1, 0, 0.05)   // ほぼ横方向のみ（前後突き出し最小化）
+        case .waist:     return SIMD3(-1, 0, 0)      // 横方向のみ絞る
+        case .hip:       return SIMD3(1, 0, 0)       // 横方向のみ
         case .shoulder:  return SIMD3(1, 0.2, 0)
         case .underBust: return SIMD3(0.5, 0, 0.2)
-        case .abdomen:   return SIMD3(0.5, 0, 0.05)  // 前方突き出しをほぼ無効化
+        case .abdomen:   return SIMD3(0.5, 0, 0)      // 横方向のみ
         case .neck:      return SIMD3(0.3, 0.1, 0)
         case .leg:       return SIMD3(0.5, -1, 0)
         case .neutral:   return SIMD3(0, 0, 0)

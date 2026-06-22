@@ -192,9 +192,8 @@ class MorphingEngine: ObservableObject {
 
             case .waist:
                 vtx.position.x += rdiff(waistDiff) * w * sign(vtx.position.x)
-                vtx.position.z += rdiff(waistDiff) * w * 0.7
+                // Z方向変形なし（横方向のみ）
                 // ウエスト(y=0)付近はbackLen/inseamをスムーズにブレンド
-                // y>0: backLenRatio, y<0: inseamRatioに向かって滑らかに移行
                 let tWaist = clamp(-yM / 0.10, 0, 1)
                 vtx.position.y = yM * (backLenRatio * (1-tWaist) + inseamRatio * tWaist)
 
@@ -202,8 +201,7 @@ class MorphingEngine: ObservableObject {
                 let tAbdomenXZ = clamp((-yM - 0.03) / 0.09, 0, 1)
                 let abdomenDiff = waistDiff * (1 - tAbdomenXZ) + hipDiff * tAbdomenXZ
                 vtx.position.x += rdiff(abdomenDiff) * w * 0.65 * sign(vtx.position.x)
-                // Z方向は最小限（腰の前後突き出し防止）
-                vtx.position.z += rdiff(abdomenDiff) * w * 0.10
+                // Z方向変形なし（前後突き出し防止）
                 let tAbdomen = clamp((-yM - 0.03) / 0.09, 0, 1)
                 vtx.position.y = yM * (backLenRatio * (1-tAbdomen) + inseamRatio * tAbdomen)
 
@@ -211,8 +209,7 @@ class MorphingEngine: ObservableObject {
                 let tHip = clamp((-yM - 0.12) / 0.05, 0, 1)
                 let hipBlendDiff = hipDiff * tHip
                 vtx.position.x += rdiff(hipBlendDiff) * w * sign(vtx.position.x)
-                // Z変形を最小限に（前後への過剰突き出し防止）
-                vtx.position.z += rdiff(hipBlendDiff) * w * 0.15
+                // Z方向変形なし（前後突き出し防止）
                 vtx.position.y = yM * inseamRatio
 
             case .leg:
