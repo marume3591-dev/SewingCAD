@@ -48,7 +48,7 @@ enum StandardBodyGenerator {
         // 胴体y=138cm断面（slices index=6）の頂点開始インデックスを計算
         // slice 0〜5 × 24頂点 = 144頂点目から
         let ringSegments = 24
-        let shoulderSliceIndex = 6  // y=138cmはslices配列の7番目(index=6)
+        let shoulderSliceIndex = 19 // y=138cmはslices配列のindex=19（1cm刻み拡張後）
         let shoulderRingBase = shoulderSliceIndex * ringSegments
 
         for side: Float in [-1, 1] {
