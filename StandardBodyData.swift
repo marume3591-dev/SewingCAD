@@ -342,13 +342,16 @@ enum StandardBodyGenerator {
         // 右腕(side>0): vi=0〜6 と vi=19〜23 を接続
         // 左腕(side<0): vi=7〜17 を接続
 
+        // bridgeIndices: seg数に対応して動的に計算
+        // vi=0がX+端（cos(0)=1）、外側半分(side側)を接続
+        // 右腕(side>0): X>0側 = vi=0..seg/4 と vi=3*seg/4..seg-1
+        // 左腕(side<0): X<0側 = vi=seg/4..3*seg/4
+        let quarterSeg = seg / 4
         let bridgeIndices: [Int]
         if side > 0 {
-            // 右腕外側: vi=19,20,21,22,23,0,1,2,3,4,5,6
-            bridgeIndices = Array(19..<seg) + Array(0..<7)
+            bridgeIndices = Array((3 * quarterSeg)..<seg) + Array(0..<(quarterSeg + 1))
         } else {
-            // 左腕外側: vi=7,8,9,10,11,12,13,14,15,16,17
-            bridgeIndices = Array(7..<18)
+            bridgeIndices = Array(quarterSeg..<(3 * quarterSeg + 1))
         }
 
         for i in 0..<(bridgeIndices.count - 1) {
@@ -428,7 +431,7 @@ enum StandardBodyGenerator {
             (1.00, ankleR,             ankleR * 0.88,      0.18),
         ]
 
-        let seg  = 16
+        let seg  = ringSegments  // 胴体と同じセグメント数で統一
         let base = vertices.count
 
         for (i, sl) in slices.enumerated() {
@@ -478,17 +481,19 @@ enum StandardBodyGenerator {
         // 胴体底面リング(ringSegments=24, 中心X=0, rx=14cm)の
         // 外側半分(side側)を脚付け根リングにつなぐ
         //
-        // 胴体底面リングvi=0: X=+14cm(右端), vi=12: X=-14cm(左端)
-        // 右脚(side>0): vi=19〜6(X+側)  左脚(side<0): vi=7〜17(X-側)
-        let bridgeIndices: [Int]
+        // bridgeIndices: ringSegments数に対応して動的に計算
+        // 右脚(side>0): X>0側 = vi=0..seg/4 と vi=3*seg/4..seg-1
+        // 左脚(side<0): X<0側 = vi=seg/4..3*seg/4
+        let legQuarter = ringSegments / 4
+        let legBridgeIndices: [Int]
         if side > 0 {
-            bridgeIndices = Array(19..<ringSegments) + Array(0..<7)
+            legBridgeIndices = Array((3 * legQuarter)..<ringSegments) + Array(0..<(legQuarter + 1))
         } else {
-            bridgeIndices = Array(7..<18)
+            legBridgeIndices = Array(legQuarter..<(3 * legQuarter + 1))
         }
-        for i in 0..<(bridgeIndices.count - 1) {
-            let vi   = bridgeIndices[i]
-            let next = bridgeIndices[i + 1]
+        for i in 0..<(legBridgeIndices.count - 1) {
+            let vi   = legBridgeIndices[i]
+            let next = legBridgeIndices[i + 1]
             let t0 = legRingBase + vi
             let t1 = legRingBase + next
             let a0 = base + vi
