@@ -174,9 +174,36 @@ enum StandardBodyGenerator {
             ( 76, 14.0,  7.8,  .leg,       0.3),
         ]
 
-        let ringSegments = 48  // 24→48: 断面をより円形に
+        let ringSegments = 48
         let totalRings   = slices.count
         let baseIndex    = 0
+
+        // 楕円の等弧長サンプリング用テーブルを生成
+        // rx,rz の楕円を n 分割する角度配列を返す
+        func ellipseArcAngles(rx: Float, rz: Float, n: Int) -> [Float] {
+            let steps = n * 20  // 細かく積分
+            var arcLen: [Float] = [0]
+            var prevX = rx, prevZ: Float = 0
+            for i in 1...steps {
+                let a = 2 * Float.pi * Float(i) / Float(steps)
+                let x = cos(a) * rx, z = sin(a) * rz
+                let d = sqrt((x-prevX)*(x-prevX) + (z-prevZ)*(z-prevZ))
+                arcLen.append(arcLen.last! + d)
+                prevX = x; prevZ = z
+            }
+            let total = arcLen.last!
+            var angles: [Float] = []
+            var j = 0
+            for k in 0..<n {
+                let target = total * Float(k) / Float(n)
+                while j < steps - 1 && arcLen[j+1] < target { j += 1 }
+                let t = arcLen[j+1] > arcLen[j]
+                    ? (target - arcLen[j]) / (arcLen[j+1] - arcLen[j]) : 0
+                let a = 2 * Float.pi * (Float(j) + t) / Float(steps)
+                angles.append(a)
+            }
+            return angles
+        }
 
         for (si, slice) in slices.enumerated() {
             let yM   = (slice.y - 111.0) / 100.0
@@ -189,8 +216,9 @@ enum StandardBodyGenerator {
             let breastBulge: Float = 0
             let bustCenterX: Float = rxM * 0.20
 
+            let arcAngles = ellipseArcAngles(rx: rxM, rz: rzM, n: ringSegments)
             for vi in 0..<ringSegments {
-                let angle = 2 * Float.pi * Float(vi) / Float(ringSegments)
+                let angle = arcAngles[vi]
                 let cosA  = cos(angle)
                 let sinA  = sin(angle)   // Z方向（正=前面）
 
