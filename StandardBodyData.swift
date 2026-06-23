@@ -45,10 +45,9 @@ enum StandardBodyGenerator {
 
         buildTorso(m: m, vertices: &vertices, polygons: &polygons, zones: &zones)
 
-        // 胴体y=138cm断面（slices index=6）の頂点開始インデックスを計算
-        // slice 0〜5 × 24頂点 = 144頂点目から
-        let ringSegments = 24
-        let shoulderSliceIndex = 19 // y=138cmはslices配列のindex=19（1cm刻み拡張後）
+        // 胴体・腕・脚すべて48セグメントに統一
+        let ringSegments = 48
+        let shoulderSliceIndex = 19 // y=138cm: index=19
         let shoulderRingBase = shoulderSliceIndex * ringSegments
 
         for side: Float in [-1, 1] {
@@ -57,10 +56,8 @@ enum StandardBodyGenerator {
                      ringSegments: ringSegments,
                      vertices: &vertices, polygons: &polygons)
         }
-        // 胴体y=76cm断面（最下スライス index=26）の頂点開始インデックス
-        // スライス数27（0〜26）× 24頂点、index=26がy=76cm
-        let legRingSegments = 24
-        let legSliceIndex   = 26  // y=76cmは最後のスライス
+        let legRingSegments = 48
+        let legSliceIndex   = 81  // y=76cm: index=81
         let legRingBase     = legSliceIndex * legRingSegments
 
         for side: Float in [-1, 1] {
@@ -177,7 +174,7 @@ enum StandardBodyGenerator {
             ( 76, 14.0,  7.8,  .leg,       0.3),
         ]
 
-        let ringSegments = 24
+        let ringSegments = 48  // 24→48: 断面をより円形に
         let totalRings   = slices.count
         let baseIndex    = 0
 
@@ -187,13 +184,9 @@ enum StandardBodyGenerator {
             let rzM  = slice.rz / 100.0
             let uRow = Float(si) / Float(totalRings - 1)
 
-            // 乳房の形状パラメータ
-            let isBustSlice = slice.region == .bust
-            // カップ差から膨らみ量を計算（bust - underBust）
-            let cupDiff: Float = max(0, m.bust - m.underBust)  // 例: 83-72=11cm
-            let cupBulge: Float = cupDiff / 100.0 * 0.15       // 係数を0.6→0.15に削減
-            let breastBulge: Float = isBustSlice ? (rzM * 0.08 + cupBulge) * slice.w : 0
-            // 乳房中心X：バスト幅の20%（左右に分かれる）
+            // 乳房の形状パラメータ（スライスのrz値で断面形状を制御するため個別膨らみ処理は無効）
+            let isBustSlice = false  // 個別の乳房膨らみ処理を無効化（線が入るため）
+            let breastBulge: Float = 0
             let bustCenterX: Float = rxM * 0.20
 
             for vi in 0..<ringSegments {
