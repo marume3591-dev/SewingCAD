@@ -67,12 +67,33 @@ enum StandardBodyGenerator {
                      vertices: &vertices, polygons: &polygons)
         }
 
-        return BodyMesh(vertices: vertices, polygons: polygons, deformationZones: zones)
+        // 生成直後にスムーズ法線を再計算（シェーディングの角張りを防ぐ）
+        let mesh = BodyMesh(vertices: vertices, polygons: polygons, deformationZones: zones)
+        recalculateNormals(mesh: mesh)
+        return mesh
     }
 
     // 引数なし版（既存コードとの互換）
     static func generate() -> BodyMesh {
         generate(m: StandardMeasurement())
+    }
+
+    // スムーズ法線再計算（全ポリゴンの面法線を頂点に加算平均）
+    private static func recalculateNormals(mesh: BodyMesh) {
+        var normals = [SIMD3<Float>](repeating: .zero, count: mesh.vertices.count)
+        for poly in mesh.polygons {
+            let v0 = mesh.vertices[poly.v0].position
+            let v1 = mesh.vertices[poly.v1].position
+            let v2 = mesh.vertices[poly.v2].position
+            let fn = simd_cross(v1 - v0, v2 - v0)
+            normals[poly.v0] += fn
+            normals[poly.v1] += fn
+            normals[poly.v2] += fn
+        }
+        for i in 0..<mesh.vertices.count {
+            let len = simd_length(normals[i])
+            if len > 0 { mesh.vertices[i].normal = normals[i] / len }
+        }
     }
 
     // ── 胴体（元の26断面をそのまま維持）─────────────────────
