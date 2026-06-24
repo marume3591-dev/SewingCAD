@@ -231,16 +231,18 @@ enum StandardBodyGenerator {
             let breastBulge: Float = 0
             let bustCenterX: Float = rxM * 0.20
 
-            // 前後オフセット：yM（ウエスト=0）の連続関数で急変を防ぐ
-            // yM: バスト≈+0.15, ウエスト=0, ヒップ≈-0.16
-            // 胸部(yM>0)は前方、ヒップ(yM<-0.12)は後方、ウエストは中央
-            // sin波で滑らかに補間
-            let bustPeak:  Float =  rzM * 0.06  // バスト前方オフセット（控えめに）
-            let hipPeak:   Float = -rzM * 0.04  // ヒップ後方オフセット（控えめに）
-            // yM=+0.15でbustPeak、yM=-0.16でhipPeak、その間は線形補間
-            let tOffset = max(-1, min(1, yM / 0.16))
-            let frontOffset = tOffset > 0 ? tOffset * bustPeak : -tOffset * hipPeak
-            let frontBulge: Float = 0  // 個別膨らみは使わない
+            // 前後非対称：前面(sinA>0)と後面(sinA<0)でrzを変える
+            // 人体は胸が前に出て背中はフラット、ヒップは後方に張り出す
+            // yMはウエスト=0、バスト≈+0.15、ヒップ≈-0.16
+            let tBody = max(-1.0, min(1.0, yM / 0.16))  // -1(ヒップ)〜+1(バスト)
+            // 前面のrz倍率：バストで1.25倍、ウエストで1.0倍、ヒップで0.95倍
+            let rzFrontMult: Float = tBody > 0
+                ? 1.0 + tBody * 0.25   // バスト方向：前に膨らむ
+                : 1.0 + tBody * 0.05   // ヒップ方向：前はほぼ変わらず
+            // 後面のrz倍率：バストで0.80倍（背中フラット）、ヒップで1.10倍（お尻）
+            let rzBackMult: Float = tBody > 0
+                ? 1.0 - tBody * 0.20   // バスト方向：背中は引っ込む
+                : 1.0 - tBody * 0.10   // ヒップ方向：後ろに張り出す
 
             let arcAngles = ellipseArcAngles(rx: rxM, rz: rzM, n: ringSegments)
             for vi in 0..<ringSegments {
@@ -250,7 +252,9 @@ enum StandardBodyGenerator {
 
                 var px = cosA * rxM
                 // 基本の楕円 + 断面全体の前後シフト + 前面のみの追加膨らみ
-                var pz = sinA * rzM + frontOffset + (sinA > 0 ? frontBulge * sinA : 0)
+                // 前面(sinA>0)と後面(sinA<0)で異なるrzを使用
+                let rzEff = sinA > 0 ? rzM * rzFrontMult : rzM * rzBackMult
+                var pz = sinA * rzEff
 
                 vertices.append(BodyVertex(
                     position: SIMD3(px, yM, pz),
