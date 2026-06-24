@@ -231,33 +231,16 @@ enum StandardBodyGenerator {
             let breastBulge: Float = 0
             let bustCenterX: Float = rxM * 0.20
 
-            // 部位別の前後オフセット（正=前方に移動、負=後方）
-            // 人体は胸が前に出て背中はフラット、ヒップは後方に張り出す
-            let frontOffset: Float  // 断面全体を前後にシフト
-            let frontBulge: Float   // 前面だけ追加で膨らませる量
-            switch slice.region {
-            case .bust:
-                frontOffset =  rzM * 0.18  // 胸部全体を前方シフト
-                frontBulge  =  rzM * 0.12  // 前面さらに膨らむ
-            case .underBust:
-                frontOffset =  rzM * 0.12
-                frontBulge  =  rzM * 0.05
-            case .waist:
-                frontOffset =  rzM * 0.05  // ウエストはほぼ中央
-                frontBulge  =  0
-            case .abdomen:
-                frontOffset =  rzM * 0.08  // お腹はやや前
-                frontBulge  =  rzM * 0.05
-            case .hip:
-                frontOffset = -rzM * 0.08  // ヒップは後方シフト
-                frontBulge  =  0
-            case .shoulder:
-                frontOffset =  rzM * 0.05
-                frontBulge  =  0
-            default:
-                frontOffset =  0
-                frontBulge  =  0
-            }
+            // 前後オフセット：yM（ウエスト=0）の連続関数で急変を防ぐ
+            // yM: バスト≈+0.15, ウエスト=0, ヒップ≈-0.16
+            // 胸部(yM>0)は前方、ヒップ(yM<-0.12)は後方、ウエストは中央
+            // sin波で滑らかに補間
+            let bustPeak:  Float =  rzM * 0.06  // バスト前方オフセット（控えめに）
+            let hipPeak:   Float = -rzM * 0.04  // ヒップ後方オフセット（控えめに）
+            // yM=+0.15でbustPeak、yM=-0.16でhipPeak、その間は線形補間
+            let tOffset = max(-1, min(1, yM / 0.16))
+            let frontOffset = tOffset > 0 ? tOffset * bustPeak : -tOffset * hipPeak
+            let frontBulge: Float = 0  // 個別膨らみは使わない
 
             let arcAngles = ellipseArcAngles(rx: rxM, rz: rzM, n: ringSegments)
             for vi in 0..<ringSegments {
