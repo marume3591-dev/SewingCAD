@@ -231,6 +231,34 @@ enum StandardBodyGenerator {
             let breastBulge: Float = 0
             let bustCenterX: Float = rxM * 0.20
 
+            // 部位別の前後オフセット（正=前方に移動、負=後方）
+            // 人体は胸が前に出て背中はフラット、ヒップは後方に張り出す
+            let frontOffset: Float  // 断面全体を前後にシフト
+            let frontBulge: Float   // 前面だけ追加で膨らませる量
+            switch slice.region {
+            case .bust:
+                frontOffset =  rzM * 0.18  // 胸部全体を前方シフト
+                frontBulge  =  rzM * 0.12  // 前面さらに膨らむ
+            case .underBust:
+                frontOffset =  rzM * 0.12
+                frontBulge  =  rzM * 0.05
+            case .waist:
+                frontOffset =  rzM * 0.05  // ウエストはほぼ中央
+                frontBulge  =  0
+            case .abdomen:
+                frontOffset =  rzM * 0.08  // お腹はやや前
+                frontBulge  =  rzM * 0.05
+            case .hip:
+                frontOffset = -rzM * 0.08  // ヒップは後方シフト
+                frontBulge  =  0
+            case .shoulder:
+                frontOffset =  rzM * 0.05
+                frontBulge  =  0
+            default:
+                frontOffset =  0
+                frontBulge  =  0
+            }
+
             let arcAngles = ellipseArcAngles(rx: rxM, rz: rzM, n: ringSegments)
             for vi in 0..<ringSegments {
                 let angle = arcAngles[vi]
@@ -238,21 +266,8 @@ enum StandardBodyGenerator {
                 let sinA  = sin(angle)   // Z方向（正=前面）
 
                 var px = cosA * rxM
-                var pz = sinA * rzM
-
-                // 前面（sinA > 0）の胸部スライスに乳房の膨らみを追加
-                if isBustSlice && sinA > 0 {
-                    // 左右の乳房中心からの距離に基づいてガウス型の膨らみ
-                    let frontFactor = sinA  // 前面ほど強く（0〜1）
-                    // 左乳房（X < 0）と右乳房（X > 0）
-                    let distFromLeftCenter  = px + bustCenterX
-                    let distFromRightCenter = px - bustCenterX
-                    let sigma: Float = rxM * 0.40  // 乳房の広がり
-                    let leftGauss  = exp(-(distFromLeftCenter  * distFromLeftCenter)  / (2 * sigma * sigma))
-                    let rightGauss = exp(-(distFromRightCenter * distFromRightCenter) / (2 * sigma * sigma))
-                    let breastFactor = max(leftGauss, rightGauss)
-                    pz += breastBulge * frontFactor * breastFactor
-                }
+                // 基本の楕円 + 断面全体の前後シフト + 前面のみの追加膨らみ
+                var pz = sinA * rzM + frontOffset + (sinA > 0 ? frontBulge * sinA : 0)
 
                 vertices.append(BodyVertex(
                     position: SIMD3(px, yM, pz),
