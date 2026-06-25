@@ -237,8 +237,8 @@ enum StandardBodyGenerator {
 
             // バスト膨らみのパラメータ
             // バストY範囲: yM=+0.05〜+0.17（cm換算で116〜128cm付近）
-            let bustYCenter: Float = 0.13   // バスト頂点のyM（y=124cm付近）
-            let bustYSigma:  Float = 0.055  // Y方向の広がり
+            let bustYCenter: Float = 0.15   // バスト頂点のyM（y=126cm）
+            let bustYSigma:  Float = 0.030  // Y方向の広がり（y=120〜132cmに限定）
             let bustYFactor  = exp(-((yM - bustYCenter) * (yM - bustYCenter)) / (2 * bustYSigma * bustYSigma))
             // カップ差から膨らみ量を計算（bust - underBust ≈ 10〜12cm）
             let cupDiff: Float = max(0, m.bust - m.underBust)
@@ -470,9 +470,9 @@ enum StandardBodyGenerator {
         // 脚2本が左右に分かれるので中心から7cm = rx/2
         let hipRatio: Float = m.hip / 91.0
         // 胴体底断面のモーフ後rx ≈ 14cm × hipRatio × 0.5
-        let hipX: Float = side * 8.6 / 2.0 / 100.0 * hipRatio  // y=76のrx/2
-        // 脚付け根半径：胴体底断面rx/2に合わせる
-        let crotchJointR: Float = 8.6 / 2.0 / 100.0 * hipRatio
+        let hipX: Float = side * 8.6 / 2.15 / 100.0 * hipRatio  // 脚中心X
+        // 脚付け根半径：胴体底断面rx/2より少し小さく
+        let crotchJointR: Float = 8.6 / 2.3 / 100.0 * hipRatio
 
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
         let slices: [Sl] = [
@@ -558,8 +558,8 @@ enum StandardBodyGenerator {
             let t1 = legRingBase + next
             let a0 = base + vi
             let a1 = base + next
-            polygons.append(BodyPolygon(v0: t0, v1: a1, v2: a0))
-            polygons.append(BodyPolygon(v0: t0, v1: t1, v2: a1))
+            polygons.append(BodyPolygon(v0: t0, v1: a0, v2: a1))
+            polygons.append(BodyPolygon(v0: t0, v1: a1, v2: t1))
         }
     }
 }
