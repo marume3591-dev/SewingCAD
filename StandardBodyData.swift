@@ -119,13 +119,13 @@ enum StandardBodyGenerator {
             (146,  3.8,  3.8,  .neck,      0.90),
             (145,  3.8,  3.8,  .neck,      0.90),
             (144,  3.8,  3.8,  .neck,      0.90),
-            (143,  5.0,  3.6,  .shoulder,  0.60),
-            (142,  7.0,  5.0,  .shoulder,  0.65),
-            (141,  9.5,  6.8,  .shoulder,  0.70),
-            (140, 11.5,  8.3,  .shoulder,  0.75),
-            (139, 13.0,  9.4,  .shoulder,  0.80),
-            (138, 13.8,  9.9,  .shoulder,  0.85),
-            (137, 13.8,  9.9,  .shoulder,  0.90),
+            (143,  5.0,  4.3,  .shoulder,  0.60),
+            (142,  7.0,  6.0,  .shoulder,  0.65),
+            (141,  9.5,  8.1,  .shoulder,  0.70),
+            (140, 11.5,  9.8,  .shoulder,  0.75),
+            (139, 13.0, 11.1,  .shoulder,  0.80),
+            (138, 13.8, 11.7,  .shoulder,  0.85),
+            (137, 13.8, 11.7,  .shoulder,  0.90),
             (136, 13.5, 11.1,  .bust,      0.65),
             (135, 13.5, 11.1,  .bust,      0.70),
             (134, 13.4, 11.0,  .bust,      0.75),
@@ -148,12 +148,12 @@ enum StandardBodyGenerator {
             (117, 10.8,  8.9,  .underBust, 0.74),
             (116, 10.5,  8.6,  .underBust, 0.71),
             (115, 10.4,  8.5,  .underBust, 0.68),
-            (114, 10.0,  8.2,  .waist,     0.85),
-            (113,  9.7,  7.9,  .waist,     0.90),
-            (112,  9.5,  7.8,  .waist,     0.95),
-            (111,  9.4,  7.7,  .waist,     1.00),  // ウエスト最細
-            (110,  9.4,  7.7,  .waist,     1.00),
-            (109,  9.4,  7.7,  .waist,     1.00),
+            (114, 10.3,  8.4,  .waist,     0.85),
+            (113, 10.2,  8.4,  .waist,     0.90),
+            (112, 10.2,  8.4,  .waist,     0.95),
+            (111, 10.2,  8.4,  .waist,     1.00),  // ウエスト最細
+            (110, 10.2,  8.4,  .waist,     1.00),
+            (109, 10.2,  8.4,  .waist,     1.00),
             (108, 10.3,  8.4,  .abdomen,   0.78),
             (107, 10.5,  8.6,  .abdomen,   0.76),
             (106, 10.8,  8.9,  .abdomen,   0.74),
@@ -237,12 +237,12 @@ enum StandardBodyGenerator {
             let tBody = max(-1.0, min(1.0, yM / 0.16))  // -1(ヒップ)〜+1(バスト)
             // 前面のrz倍率：バストで1.25倍、ウエストで1.0倍、ヒップで0.95倍
             let rzFrontMult: Float = tBody > 0
-                ? 1.0 + tBody * 0.35   // バスト方向：前に膨らむ
+                ? 1.0 + tBody * 0.45   // バスト方向：前に膨らむ
                 : 1.0 + tBody * 0.05   // ヒップ方向：前はほぼ変わらず
             // 後面のrz倍率：バストで0.80倍（背中フラット）、ヒップで1.10倍（お尻）
             let rzBackMult: Float = tBody > 0
-                ? 1.0 - tBody * 0.25   // バスト方向：背中は引っ込む
-                : 1.0 - tBody * 0.15   // ヒップ方向：後ろに張り出す
+                ? 1.0 - tBody * 0.28   // バスト方向：背中は引っ込む
+                : 1.0 - tBody * 0.10   // ヒップ方向：後ろに張り出す
 
             let arcAngles = ellipseArcAngles(rx: rxM, rz: rzM, n: ringSegments)
             for vi in 0..<ringSegments {
@@ -333,14 +333,14 @@ enum StandardBodyGenerator {
         let armLen: Float = m.sleeveLen / 100.0
 
         // 腕の方向：斜め外下
-        let armDirX: Float = side * 0.35
+        let armDirX: Float = side * 0.22  // より下向きに
         let armDirY: Float = -1.0
         let armLen3D = sqrt(armDirX * armDirX + armDirY * armDirY)
         let armDX = armDirX / armLen3D * armLen
         let armDY = armDirY / armLen3D * armLen
 
         let startY: Float = (138.0 - 111.0) / 100.0
-        let startX: Float = side * 13.0 / 100.0  // y=138のrx=13.0に合わせる
+        let startX: Float = side * 13.8 / 100.0  // y=138のrxに合わせる
 
         // 腕スライス（t=0.0を除く：付け根は胴体頂点を流用）
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
