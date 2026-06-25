@@ -104,9 +104,12 @@ enum StandardBodyGenerator {
         generate(m: StandardMeasurement())
     }
 
-    // スムーズ法線再計算（全ポリゴンの面法線を頂点に加算平均）
+    // スムーズ法線再計算（位置が近い頂点の法線をマージして接続部を滑らかに）
     private static func recalculateNormals(mesh: BodyMesh) {
-        var normals = [SIMD3<Float>](repeating: .zero, count: mesh.vertices.count)
+        let count = mesh.vertices.count
+        var normals = [SIMD3<Float>](repeating: .zero, count: count)
+
+        // 各ポリゴンの面法線を頂点に加算
         for poly in mesh.polygons {
             let v0 = mesh.vertices[poly.v0].position
             let v1 = mesh.vertices[poly.v1].position
@@ -116,9 +119,47 @@ enum StandardBodyGenerator {
             normals[poly.v1] += fn
             normals[poly.v2] += fn
         }
-        for i in 0..<mesh.vertices.count {
-            let len = simd_length(normals[i])
-            if len > 0 { mesh.vertices[i].normal = normals[i] / len }
+
+        // グリッドベースで近接頂点の法線をマージ（O(n)近似）
+        let threshold: Float = 0.003
+        let gridSize: Float = threshold
+        var grid: [SIMD3<Int32>: [Int]] = [:]
+        for i in 0..<count {
+            let p = mesh.vertices[i].position
+            let key = SIMD3<Int32>(Int32(floor(p.x/gridSize)), Int32(floor(p.y/gridSize)), Int32(floor(p.z/gridSize)))
+            grid[key, default: []].append(i)
+        }
+
+        var merged = normals
+        for (key, indices) in grid {
+            // 隣接セルも含めてマージ
+            var group: [Int] = indices
+            for dx: Int32 in -1...1 {
+                for dy: Int32 in -1...1 {
+                    for dz: Int32 in -1...1 {
+                        if dx == 0 && dy == 0 && dz == 0 { continue }
+                        let nk = SIMD3<Int32>(key.x+dx, key.y+dy, key.z+dz)
+                        if let neighbors = grid[nk] {
+                            let pi = mesh.vertices[indices[0]].position
+                            for j in neighbors {
+                                let pj = mesh.vertices[j].position
+                                if simd_length(pi - pj) < threshold {
+                                    group.append(j)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if group.count > 1 {
+                let combined = group.reduce(SIMD3<Float>.zero) { $0 + normals[$1] }
+                for i in group { merged[i] = combined }
+            }
+        }
+
+        for i in 0..<count {
+            let len = simd_length(merged[i])
+            if len > 0 { mesh.vertices[i].normal = merged[i] / len }
         }
     }
 
@@ -318,16 +359,13 @@ enum StandardBodyGenerator {
         let armDX = armDirX / armLen3D * armLen
         let armDY = armDirY / armLen3D * armLen
 
-        let startY: Float = (138.0 - 111.0) / 100.0
-        let startX: Float = side * 13.8 / 100.0  // y=138のrxに合わせる
+        let startY: Float = (138.0 - 111.0) / 100.0  // shoulderSliceIndex=19のy
+        let startX: Float = side * 13.8 / 100.0
 
         // 腕スライス（t=0.0を除く：付け根は胴体頂点を流用）
-        // y=138のスライスrx=0.138, rz=0.117（肩スライスと同じ値）
-        let shoulderRx: Float = 13.8 / 100.0
-        let shoulderRz: Float = 11.7 / 100.0  // y=138のrz
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
         let slices: [Sl] = [
-            (0.00, shoulderRx,   shoulderRz,    0.9),  // 胴体y=138と同じ断面
+            (0.05, uArmR * 1.20, uArmR * 1.10, 0.85),  // 肩付近（胴体に近いサイズ）
             (0.12, uArmR * 1.08, uArmR * 1.00, 0.7),
             (0.25, uArmR,        uArmR * 0.95,  0.6),
             (0.38, uArmR * 0.94, uArmR * 0.90,  0.5),
@@ -372,10 +410,18 @@ enum StandardBodyGenerator {
         // 右腕(side>0): vi=0〜6 と vi=19〜23 を接続
         // 左腕(side<0): vi=7〜17 を接続
 
-        // 胴体y=138断面(shoulderRingBase)と腕t=0.00(base)を全周で接続
-        // 両方とも等弧長サンプリングで同じrx/rzなのでvi=0同士が一致
-        for vi in 0..<seg {
-            let next = (vi + 1) % seg
+        // 胴体y=138断面(shoulderRingBase)と腕t=0.05(base)を外側半分で接続
+        // 外側: 右腕=X+側(vi=0〜quarterSeg, 3*quarterSeg〜seg-1), 左腕=X-側
+        let quarterSeg = seg / 4
+        let outerIndices: [Int]
+        if side > 0 {
+            outerIndices = Array((3 * quarterSeg)..<seg) + Array(0...(quarterSeg))
+        } else {
+            outerIndices = Array(quarterSeg...(3 * quarterSeg))
+        }
+        for i in 0..<(outerIndices.count - 1) {
+            let vi   = outerIndices[i]
+            let next = outerIndices[i + 1]
             let t0 = shoulderRingBase + vi
             let t1 = shoulderRingBase + next
             let a0 = base + vi
