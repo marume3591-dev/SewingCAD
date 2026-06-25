@@ -227,34 +227,46 @@ enum StandardBodyGenerator {
             let uRow = Float(si) / Float(totalRings - 1)
 
             // 乳房の形状パラメータ（スライスのrz値で断面形状を制御するため個別膨らみ処理は無効）
-            let isBustSlice = false  // 個別の乳房膨らみ処理を無効化（線が入るため）
-            let breastBulge: Float = 0
-            let bustCenterX: Float = rxM * 0.20
-
-            // 前後非対称：前面(sinA>0)と後面(sinA<0)でrzを変える
-            // 人体は胸が前に出て背中はフラット、ヒップは後方に張り出す
             // yMはウエスト=0、バスト≈+0.15、ヒップ≈-0.16
-            let tBody = max(-1.0, min(1.0, yM / 0.16))  // -1(ヒップ)〜+1(バスト)
-            // 前面のrz倍率：バストで1.25倍、ウエストで1.0倍、ヒップで0.95倍
-            let rzFrontMult: Float = tBody > 0
-                ? 1.0 + tBody * 0.45   // バスト方向：前に膨らむ
-                : 1.0 + tBody * 0.05   // ヒップ方向：前はほぼ変わらず
-            // 後面のrz倍率：バストで0.80倍（背中フラット）、ヒップで1.10倍（お尻）
+            let tBody = max(-1.0, min(1.0, yM / 0.16))
+
+            // 後面：背中はフラット（バスト時）、お尻は後方（ヒップ時）
             let rzBackMult: Float = tBody > 0
-                ? 1.0 - tBody * 0.28   // バスト方向：背中は引っ込む
-                : 1.0 - tBody * 0.10   // ヒップ方向：後ろに張り出す
+                ? 1.0 - tBody * 0.28
+                : 1.0 - tBody * 0.10
+
+            // バスト膨らみのパラメータ
+            // バストY範囲: yM=+0.05〜+0.17（cm換算で116〜128cm付近）
+            let bustYCenter: Float = 0.13   // バスト頂点のyM（y=124cm付近）
+            let bustYSigma:  Float = 0.055  // Y方向の広がり
+            let bustYFactor  = exp(-((yM - bustYCenter) * (yM - bustYCenter)) / (2 * bustYSigma * bustYSigma))
+            // カップ差から膨らみ量を計算（bust - underBust ≈ 10〜12cm）
+            let cupDiff: Float = max(0, m.bust - m.underBust)
+            let bustDepth: Float = cupDiff / 100.0 * 0.9  // バスト最大突出量（m単位）
 
             let arcAngles = ellipseArcAngles(rx: rxM, rz: rzM, n: ringSegments)
             for vi in 0..<ringSegments {
                 let angle = arcAngles[vi]
                 let cosA  = cos(angle)
-                let sinA  = sin(angle)   // Z方向（正=前面）
+                let sinA  = sin(angle)
 
-                var px = cosA * rxM
-                // 基本の楕円 + 断面全体の前後シフト + 前面のみの追加膨らみ
-                // 前面(sinA>0)と後面(sinA<0)で異なるrzを使用
-                let rzEff = sinA > 0 ? rzM * rzFrontMult : rzM * rzBackMult
+                let px = cosA * rxM
+
+                // 後面はflat、前面は基本rz
+                let rzEff = sinA > 0 ? rzM : rzM * rzBackMult
                 var pz = sinA * rzEff
+
+                // 前面（sinA>0）にバスト膨らみを追加
+                if sinA > 0 {
+                    // 左右のバスト中心（X方向）
+                    let bustCenterX: Float = rxM * 0.38
+                    let bustXSigma:  Float = rxM * 0.45
+                    let leftGauss  = exp(-((px + bustCenterX) * (px + bustCenterX)) / (2 * bustXSigma * bustXSigma))
+                    let rightGauss = exp(-((px - bustCenterX) * (px - bustCenterX)) / (2 * bustXSigma * bustXSigma))
+                    let xFactor = max(leftGauss, rightGauss)
+                    let zFactor = sinA  // 真正面ほど強く
+                    pz += bustDepth * bustYFactor * xFactor * zFactor
+                }
 
                 vertices.append(BodyVertex(
                     position: SIMD3(px, yM, pz),
