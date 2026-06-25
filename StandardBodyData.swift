@@ -38,6 +38,32 @@ enum StandardBodyGenerator {
     static let standard = StandardMeasurement()
 
     // ── メインエントリ ──────────────────────────────────────
+    // 楕円の等弧長サンプリング（全メソッドから共有）
+    static func ellipseArcAngles(rx: Float, rz: Float, n: Int) -> [Float] {
+        let steps = n * 20
+        var arcLen: [Float] = [0]
+        var prevX = rx, prevZ: Float = 0
+        for i in 1...steps {
+            let a = 2 * Float.pi * Float(i) / Float(steps)
+            let x = cos(a) * rx, z = sin(a) * rz
+            let d = sqrt((x-prevX)*(x-prevX) + (z-prevZ)*(z-prevZ))
+            arcLen.append(arcLen.last! + d)
+            prevX = x; prevZ = z
+        }
+        let total = arcLen.last!
+        var angles: [Float] = []
+        var j = 0
+        for k in 0..<n {
+            let target = total * Float(k) / Float(n)
+            while j < steps - 1 && arcLen[j+1] < target { j += 1 }
+            let t = arcLen[j+1] > arcLen[j]
+                ? (target - arcLen[j]) / (arcLen[j+1] - arcLen[j]) : 0
+            let a = 2 * Float.pi * (Float(j) + t) / Float(steps)
+            angles.append(a)
+        }
+        return angles
+    }
+
     static func generate(m: StandardMeasurement = StandardMeasurement()) -> BodyMesh {
         var vertices: [BodyVertex]  = []
         var polygons:  [BodyPolygon] = []
@@ -193,32 +219,7 @@ enum StandardBodyGenerator {
         let totalRings   = slices.count
         let baseIndex    = 0
 
-        // 楕円の等弧長サンプリング用テーブルを生成
-        // rx,rz の楕円を n 分割する角度配列を返す
-        func ellipseArcAngles(rx: Float, rz: Float, n: Int) -> [Float] {
-            let steps = n * 20  // 細かく積分
-            var arcLen: [Float] = [0]
-            var prevX = rx, prevZ: Float = 0
-            for i in 1...steps {
-                let a = 2 * Float.pi * Float(i) / Float(steps)
-                let x = cos(a) * rx, z = sin(a) * rz
-                let d = sqrt((x-prevX)*(x-prevX) + (z-prevZ)*(z-prevZ))
-                arcLen.append(arcLen.last! + d)
-                prevX = x; prevZ = z
-            }
-            let total = arcLen.last!
-            var angles: [Float] = []
-            var j = 0
-            for k in 0..<n {
-                let target = total * Float(k) / Float(n)
-                while j < steps - 1 && arcLen[j+1] < target { j += 1 }
-                let t = arcLen[j+1] > arcLen[j]
-                    ? (target - arcLen[j]) / (arcLen[j+1] - arcLen[j]) : 0
-                let a = 2 * Float.pi * (Float(j) + t) / Float(steps)
-                angles.append(a)
-            }
-            return angles
-        }
+        // ellipseArcAnglesはstaticメソッドとして外部定義
 
         for (si, slice) in slices.enumerated() {
             let yM   = (slice.y - 111.0) / 100.0
@@ -226,47 +227,40 @@ enum StandardBodyGenerator {
             let rzM  = slice.rz / 100.0
             let uRow = Float(si) / Float(totalRings - 1)
 
-            // 乳房の形状パラメータ（スライスのrz値で断面形状を制御するため個別膨らみ処理は無効）
-            // yMはウエスト=0、バスト≈+0.15、ヒップ≈-0.16
-            let tBody = max(-1.0, min(1.0, yM / 0.16))
+            // 前面rz・後面rzを部位別に設定（シンプルな前後非対称）
+            // 前面(sinA>0)は胸・腹が出る、後面(sinA<0)は背中・お尻
+            let rzFront: Float
+            let rzBack:  Float
+            switch slice.region {
+            case .bust:
+                rzFront = rzM * 1.30  // 胸が前に出る
+                rzBack  = rzM * 0.75  // 背中はフラット
+            case .underBust:
+                rzFront = rzM * 1.10
+                rzBack  = rzM * 0.85
+            case .waist:
+                rzFront = rzM * 1.00  // ウエストは対称
+                rzBack  = rzM * 1.00
+            case .abdomen:
+                rzFront = rzM * 1.05  // お腹はやや前
+                rzBack  = rzM * 0.95
+            case .hip:
+                rzFront = rzM * 0.95
+                rzBack  = rzM * 1.10  // お尻は後ろに出る
+            default:
+                rzFront = rzM
+                rzBack  = rzM
+            }
 
-            // 後面：背中はフラット（バスト時）、お尻は後方（ヒップ時）
-            let rzBackMult: Float = tBody > 0
-                ? 1.0 - tBody * 0.28
-                : 1.0 - tBody * 0.10
-
-            // バスト膨らみのパラメータ
-            // バストY範囲: yM=+0.05〜+0.17（cm換算で116〜128cm付近）
-            let bustYCenter: Float = 0.15   // バスト頂点のyM（y=126cm）
-            let bustYSigma:  Float = 0.030  // Y方向の広がり（y=120〜132cmに限定）
-            let bustYFactor  = exp(-((yM - bustYCenter) * (yM - bustYCenter)) / (2 * bustYSigma * bustYSigma))
-            // カップ差から膨らみ量を計算（bust - underBust ≈ 10〜12cm）
-            let cupDiff: Float = max(0, m.bust - m.underBust)
-            let bustDepth: Float = cupDiff / 100.0 * 0.55  // バスト最大突出量（控えめに）
-
-            let arcAngles = ellipseArcAngles(rx: rxM, rz: rzM, n: ringSegments)
+            let arcAngles = StandardBodyGenerator.ellipseArcAngles(rx: rxM, rz: rzM, n: ringSegments)
             for vi in 0..<ringSegments {
                 let angle = arcAngles[vi]
                 let cosA  = cos(angle)
                 let sinA  = sin(angle)
 
-                let px = cosA * rxM
-
-                // 後面はflat、前面は基本rz
-                let rzEff = sinA > 0 ? rzM : rzM * rzBackMult
-                var pz = sinA * rzEff
-
-                // 前面（sinA>0）にバスト膨らみを追加
-                if sinA > 0 {
-                    // 左右のバスト：中心を広め・シグマを大きくして自然な丸みに
-                    let bustCenterX: Float = rxM * 0.30   // 中心を内側寄りに
-                    let bustXSigma:  Float = rxM * 0.85   // 広い裾野で丸く
-                    let leftGauss  = exp(-((px + bustCenterX) * (px + bustCenterX)) / (2 * bustXSigma * bustXSigma))
-                    let rightGauss = exp(-((px - bustCenterX) * (px - bustCenterX)) / (2 * bustXSigma * bustXSigma))
-                    let xFactor = max(leftGauss, rightGauss)
-                    let zFactor = sinA * sinA  // 二乗で端をなだらかに
-                    pz += bustDepth * bustYFactor * xFactor * zFactor
-                }
+                let px  = cosA * rxM
+                let rzEff = sinA >= 0 ? rzFront : rzBack
+                var pz  = sinA * rzEff
 
                 vertices.append(BodyVertex(
                     position: SIMD3(px, yM, pz),
@@ -498,13 +492,16 @@ enum StandardBodyGenerator {
             let zPos: Float = -0.004 + t * 0.015  // 付け根Z補正
 
             let uRow = Float(i) / Float(slices.count - 1)
+            let legAngles = StandardBodyGenerator.ellipseArcAngles(rx: sl.rx, rz: sl.rz, n: seg)
             for vi in 0..<seg {
-                let angle = 2 * Float.pi * Float(vi) / Float(seg)
+                let angle = legAngles[vi]
+                let cosA = cos(angle)
+                let sinA = sin(angle)
                 vertices.append(BodyVertex(
-                    position: SIMD3(xPos + cos(angle) * sl.rx,
+                    position: SIMD3(xPos + cosA * sl.rx,
                                     yPos,
-                                    zPos + sin(angle) * sl.rz),
-                    normal:   SIMD3(cos(angle), 0, sin(angle)),
+                                    zPos + sinA * sl.rz),
+                    normal:   SIMD3(cosA, 0, sinA),
                     region:   .leg,
                     influenceWeight: sl.w,
                     uv: SIMD2(Float(vi) / Float(seg), uRow)
