@@ -227,40 +227,13 @@ enum StandardBodyGenerator {
             let rzM  = slice.rz / 100.0
             let uRow = Float(si) / Float(totalRings - 1)
 
-            // 前面rz・後面rzを部位別に設定（シンプルな前後非対称）
-            // 前面(sinA>0)は胸・腹が出る、後面(sinA<0)は背中・お尻
-            let rzFront: Float
-            let rzBack:  Float
-            switch slice.region {
-            case .bust:
-                rzFront = rzM * 1.30  // 胸が前に出る
-                rzBack  = rzM * 0.75  // 背中はフラット
-            case .underBust:
-                rzFront = rzM * 1.10
-                rzBack  = rzM * 0.85
-            case .waist:
-                rzFront = rzM * 1.00  // ウエストは対称
-                rzBack  = rzM * 1.00
-            case .abdomen:
-                rzFront = rzM * 1.05  // お腹はやや前
-                rzBack  = rzM * 0.95
-            case .hip:
-                rzFront = rzM * 0.95
-                rzBack  = rzM * 1.10  // お尻は後ろに出る
-            default:
-                rzFront = rzM
-                rzBack  = rzM
-            }
-
             let arcAngles = StandardBodyGenerator.ellipseArcAngles(rx: rxM, rz: rzM, n: ringSegments)
             for vi in 0..<ringSegments {
                 let angle = arcAngles[vi]
                 let cosA  = cos(angle)
                 let sinA  = sin(angle)
-
-                let px  = cosA * rxM
-                let rzEff = sinA >= 0 ? rzFront : rzBack
-                var pz  = sinA * rzEff
+                let px    = cosA * rxM
+                let pz    = sinA * rzM
 
                 vertices.append(BodyVertex(
                     position: SIMD3(px, yM, pz),
