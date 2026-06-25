@@ -344,12 +344,14 @@ enum StandardBodyGenerator {
             let cx = startX + armDX * t
             let cy = startY + armDY * t
             let cz: Float = 0.010 * (1 - t)
+            let armAngles = StandardBodyGenerator.ellipseArcAngles(rx: sl.rx, rz: sl.rz, n: seg)
 
             for vi in 0..<seg {
-                let angle = 2 * Float.pi * Float(vi) / Float(seg)
+                let angle = armAngles[vi]
+                let cosA = cos(angle); let sinA = sin(angle)
                 vertices.append(BodyVertex(
-                    position: SIMD3(cx + cos(angle) * sl.rx, cy, cz + sin(angle) * sl.rz),
-                    normal:   SIMD3(cos(angle), 0, sin(angle)),
+                    position: SIMD3(cx + cosA * sl.rx, cy, cz + sinA * sl.rz),
+                    normal:   SIMD3(cosA, 0, sinA),
                     region:   .shoulder, influenceWeight: sl.w,
                     uv: SIMD2(Float(vi) / Float(seg), sl.t)
                 ))
@@ -437,13 +439,12 @@ enum StandardBodyGenerator {
         // 脚2本が左右に分かれるので中心から7cm = rx/2
         let hipRatio: Float = m.hip / 91.0
         // 胴体底断面のモーフ後rx ≈ 14cm × hipRatio × 0.5
-        let hipX: Float = side * 8.6 / 2.15 / 100.0 * hipRatio  // 脚中心X
-        // 脚付け根半径：胴体底断面rx/2より少し小さく
-        let crotchJointR: Float = 8.6 / 2.3 / 100.0 * hipRatio
+        let hipX: Float = side * 8.6 / 2.0 / 100.0 * hipRatio   // y=76のrx/2
+        let crotchJointR: Float = 8.6 / 2.0 / 100.0 * hipRatio       // rx/2
 
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
         let slices: [Sl] = [
-            (0.00, crotchJointR,       crotchJointR * 0.9, 0.45), // 胴体底面にフィット
+            (0.00, crotchJointR,       crotchJointR,       0.45), // 胴体底面にフィット
             (0.08, thighR * 1.10,      thighR * 1.00,      0.65),
             (0.20, thighR,             thighR * 0.95,      0.60),
             (0.32, thighR * 0.88,      thighR * 0.85,      0.52),
