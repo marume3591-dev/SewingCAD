@@ -322,8 +322,12 @@ enum StandardBodyGenerator {
         let startX: Float = side * 13.8 / 100.0  // y=138のrxに合わせる
 
         // 腕スライス（t=0.0を除く：付け根は胴体頂点を流用）
+        // y=138のスライスrx=0.138, rz=0.117（肩スライスと同じ値）
+        let shoulderRx: Float = 13.8 / 100.0
+        let shoulderRz: Float = 11.7 / 100.0  // y=138のrz
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
         let slices: [Sl] = [
+            (0.00, shoulderRx,   shoulderRz,    0.9),  // 胴体y=138と同じ断面
             (0.12, uArmR * 1.08, uArmR * 1.00, 0.7),
             (0.25, uArmR,        uArmR * 0.95,  0.6),
             (0.38, uArmR * 0.94, uArmR * 0.90,  0.5),
@@ -368,21 +372,10 @@ enum StandardBodyGenerator {
         // 右腕(side>0): vi=0〜6 と vi=19〜23 を接続
         // 左腕(side<0): vi=7〜17 を接続
 
-        // bridgeIndices: seg数に対応して動的に計算
-        // vi=0がX+端（cos(0)=1）、外側半分(side側)を接続
-        // 右腕(side>0): X>0側 = vi=0..seg/4 と vi=3*seg/4..seg-1
-        // 左腕(side<0): X<0側 = vi=seg/4..3*seg/4
-        let quarterSeg = seg / 4
-        let bridgeIndices: [Int]
-        if side > 0 {
-            bridgeIndices = Array((3 * quarterSeg)..<seg) + Array(0..<(quarterSeg + 1))
-        } else {
-            bridgeIndices = Array(quarterSeg..<(3 * quarterSeg + 1))
-        }
-
-        for i in 0..<(bridgeIndices.count - 1) {
-            let vi   = bridgeIndices[i]
-            let next = bridgeIndices[i + 1]
+        // 胴体y=138断面(shoulderRingBase)と腕t=0.00(base)を全周で接続
+        // 両方とも等弧長サンプリングで同じrx/rzなのでvi=0同士が一致
+        for vi in 0..<seg {
+            let next = (vi + 1) % seg
             let t0 = shoulderRingBase + vi
             let t1 = shoulderRingBase + next
             let a0 = base + vi
@@ -512,14 +505,12 @@ enum StandardBodyGenerator {
         // bridgeIndices: ringSegments数に対応して動的に計算
         // 右脚(side>0): X>0側 = vi=0..seg/4 と vi=3*seg/4..seg-1
         // 左脚(side<0): X<0側 = vi=seg/4..3*seg/4
-        // 脚付け根：胴体底面の内側半分（股側）を脚に接続
+        // 脚t=0.00(base)と胴体底面(legRingBase)を外側半分で接続
         let legQuarter = ringSegments / 4
         let legBridgeIndices: [Int]
         if side > 0 {
-            // 右脚：X+側（vi=0付近）を接続
             legBridgeIndices = Array((3 * legQuarter)..<ringSegments) + Array(0..<(legQuarter + 1))
         } else {
-            // 左脚：X-側（vi=seg/2付近）を接続
             legBridgeIndices = Array(legQuarter..<(3 * legQuarter + 1))
         }
         for i in 0..<(legBridgeIndices.count - 1) {
