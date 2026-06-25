@@ -242,7 +242,7 @@ enum StandardBodyGenerator {
             let bustYFactor  = exp(-((yM - bustYCenter) * (yM - bustYCenter)) / (2 * bustYSigma * bustYSigma))
             // カップ差から膨らみ量を計算（bust - underBust ≈ 10〜12cm）
             let cupDiff: Float = max(0, m.bust - m.underBust)
-            let bustDepth: Float = cupDiff / 100.0 * 0.9  // バスト最大突出量（m単位）
+            let bustDepth: Float = cupDiff / 100.0 * 0.55  // バスト最大突出量（控えめに）
 
             let arcAngles = ellipseArcAngles(rx: rxM, rz: rzM, n: ringSegments)
             for vi in 0..<ringSegments {
@@ -258,13 +258,13 @@ enum StandardBodyGenerator {
 
                 // 前面（sinA>0）にバスト膨らみを追加
                 if sinA > 0 {
-                    // 左右のバスト中心（X方向）
-                    let bustCenterX: Float = rxM * 0.38
-                    let bustXSigma:  Float = rxM * 0.45
+                    // 左右のバスト：中心を広め・シグマを大きくして自然な丸みに
+                    let bustCenterX: Float = rxM * 0.30   // 中心を内側寄りに
+                    let bustXSigma:  Float = rxM * 0.85   // 広い裾野で丸く
                     let leftGauss  = exp(-((px + bustCenterX) * (px + bustCenterX)) / (2 * bustXSigma * bustXSigma))
                     let rightGauss = exp(-((px - bustCenterX) * (px - bustCenterX)) / (2 * bustXSigma * bustXSigma))
                     let xFactor = max(leftGauss, rightGauss)
-                    let zFactor = sinA  // 真正面ほど強く
+                    let zFactor = sinA * sinA  // 二乗で端をなだらかに
                     pz += bustDepth * bustYFactor * xFactor * zFactor
                 }
 
@@ -495,7 +495,7 @@ enum StandardBodyGenerator {
             let t    = sl.t
             let xPos = hipX + side * t * 0.004  // わずかに外開き
             let yPos = crotchY - t * legLen
-            let zPos: Float = t * 0.018          // 少し前傾
+            let zPos: Float = -0.004 + t * 0.015  // 付け根Z補正
 
             let uRow = Float(i) / Float(slices.count - 1)
             for vi in 0..<seg {
@@ -541,11 +541,14 @@ enum StandardBodyGenerator {
         // bridgeIndices: ringSegments数に対応して動的に計算
         // 右脚(side>0): X>0側 = vi=0..seg/4 と vi=3*seg/4..seg-1
         // 左脚(side<0): X<0側 = vi=seg/4..3*seg/4
+        // 脚付け根：胴体底面の内側半分（股側）を脚に接続
         let legQuarter = ringSegments / 4
         let legBridgeIndices: [Int]
         if side > 0 {
+            // 右脚：X+側（vi=0付近）を接続
             legBridgeIndices = Array((3 * legQuarter)..<ringSegments) + Array(0..<(legQuarter + 1))
         } else {
+            // 左脚：X-側（vi=seg/2付近）を接続
             legBridgeIndices = Array(legQuarter..<(3 * legQuarter + 1))
         }
         for i in 0..<(legBridgeIndices.count - 1) {
@@ -555,8 +558,8 @@ enum StandardBodyGenerator {
             let t1 = legRingBase + next
             let a0 = base + vi
             let a1 = base + next
-            polygons.append(BodyPolygon(v0: t0, v1: a0, v2: a1))
-            polygons.append(BodyPolygon(v0: t0, v1: a1, v2: t1))
+            polygons.append(BodyPolygon(v0: t0, v1: a1, v2: a0))
+            polygons.append(BodyPolygon(v0: t0, v1: t1, v2: a1))
         }
     }
 }
