@@ -479,15 +479,17 @@ enum StandardBodyGenerator {
 
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
         let slices: [Sl] = [
-            (0.00, legRx0,         legRz0,         0.50),  // 付け根：胴体と完全一致
-            (0.10, thighR * 0.98,  thighR * 0.90,  0.60),
-            (0.22, thighR * 0.94,  thighR * 0.86,  0.58),
-            (0.35, thighR * 0.86,  thighR * 0.80,  0.50),
-            (0.48, calfR  * 1.08,  calfR  * 0.94,  0.42),
-            (0.60, calfR,          calfR  * 0.88,  0.38),
-            (0.74, calfR  * 0.86,  calfR  * 0.82,  0.30),
-            (0.87, ankleR * 1.06,  ankleR * 0.94,  0.22),
-            (1.00, ankleR,         ankleR * 0.86,  0.18),
+            (0.00, legRx0,              legRz0,              0.50),  // 付け根(胴体一致)
+            (0.04, legRx0 * 1.4,        legRz0 * 1.3,        0.53),  // 急速に広がる
+            (0.08, thighR * 0.96,       thighR * 0.88,       0.58),  // 大腿サイズへ
+            (0.15, thighR * 0.98,       thighR * 0.90,       0.60),
+            (0.25, thighR * 0.96,       thighR * 0.88,       0.58),
+            (0.36, thighR * 0.88,       thighR * 0.82,       0.52),
+            (0.48, calfR  * 1.08,       calfR  * 0.94,       0.42),
+            (0.60, calfR,               calfR  * 0.88,       0.38),
+            (0.73, calfR  * 0.86,       calfR  * 0.82,       0.30),
+            (0.86, ankleR * 1.06,       ankleR * 0.94,       0.22),
+            (1.00, ankleR,              ankleR * 0.86,       0.18),
         ]
 
         let legBase = vertices.count
