@@ -395,15 +395,11 @@ enum StandardBodyGenerator {
             }
         }
 
-        // 胴体y=138リング(shoulderRingBase) → 腕最初スライス(armBase)
-        // 胴体リングと腕リングを全周でつなぐ（等弧長で頂点順序が一致）
-        // ただし腕のrxは胴体rxより小さいので、対応するvi番号でX座標が異なる
-        // → 外側のvi番号帯（side側）だけをつなぐ
-        let q = seg / 4
-        // 右腕: vi=3q〜seg-1 + 0〜q, 左腕: vi=q〜3q
+        // 胴体y=138リング → 腕最初スライス: 外側1/6のみ接続
+        let q = seg / 6
         let bridgeRange: [Int] = side > 0
-            ? (Array((3*q)..<seg) + Array(0...q))
-            : Array(q...(3*q))
+            ? (Array((5*q)..<seg) + Array(0...q))
+            : Array(q...(5*q))
 
         for i in 0..<(bridgeRange.count - 1) {
             let vi = bridgeRange[i]; let vn = bridgeRange[i+1]
@@ -469,7 +465,7 @@ enum StandardBodyGenerator {
         let crotchY: Float = (76.0 - 111.0) / 100.0
         let ankleY: Float  = crotchY - m.inseam / 100.0
 
-        let thighR: Float = m.thigh / (2 * Float.pi) / 100.0 * hipRatio
+        let thighR: Float = m.thigh / (2 * Float.pi) / 100.0
         let calfR:  Float = m.calf  / (2 * Float.pi) / 100.0
         let ankleR: Float = calfR * 0.72
         let legR0:  Float = legRx * 0.50  // 付け根半径
@@ -480,15 +476,15 @@ enum StandardBodyGenerator {
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
         let legLen = abs(ankleY - crotchY)
         let slices: [Sl] = [
-            (0.00, legR0,          legR0,          0.45),  // 付け根（胴体と接続）
-            (0.10, thighR * 1.05,  thighR * 0.98,  0.60),
-            (0.22, thighR,         thighR * 0.95,   0.58),
-            (0.35, thighR * 0.92,  thighR * 0.88,   0.52),
-            (0.48, calfR  * 1.10,  calfR  * 0.95,   0.42),
-            (0.60, calfR,          calfR  * 0.90,   0.38),
-            (0.75, calfR  * 0.88,  calfR  * 0.85,   0.30),
-            (0.88, ankleR * 1.08,  ankleR * 0.95,   0.22),
-            (1.00, ankleR,         ankleR * 0.88,   0.18),
+            (0.00, thighR * 0.92,  thighR * 0.85,  0.50),  // 付け根（大腿上部）
+            (0.12, thighR * 1.00,  thighR * 0.92,  0.60),
+            (0.25, thighR * 0.96,  thighR * 0.88,  0.58),
+            (0.38, thighR * 0.88,  thighR * 0.82,  0.52),
+            (0.50, calfR  * 1.10,  calfR  * 0.95,  0.42),
+            (0.62, calfR,          calfR  * 0.90,  0.38),
+            (0.75, calfR  * 0.88,  calfR  * 0.85,  0.30),
+            (0.88, ankleR * 1.08,  ankleR * 0.95,  0.22),
+            (1.00, ankleR,         ankleR * 0.88,  0.18),
         ]
 
         let legBase = vertices.count
