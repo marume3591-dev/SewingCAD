@@ -453,47 +453,49 @@ enum StandardBodyGenerator {
     private static func buildLeg(
         m: StandardMeasurement,
         side: Float,
-        legRingBase: Int,       // 胴体y=76断面の頂点開始インデックス
+        legRingBase: Int,
         ringSegments: Int,
         vertices: inout [BodyVertex],
-        polygons:  inout [BodyPolygon]
+        polygons: inout [BodyPolygon]
     ) {
+        // ── 座標設計 ──
+        // 胴体y=76: rx=8.6cm → 右脚中心X=+4.3cm、左脚中心X=-4.3cm
+        // 脚rx=4.3cm にすると vi=0が胴体外端(X=8.6cm)と一致
+        // vi=seg/2が胴体中央(X=0)と一致 → bridge完全一致
         let hipRatio: Float = m.hip / 91.0
-        // y=76のrx=8.6cm、脚は左右に分かれるのでhipX=±rx/2
-        let legRx: Float  = 8.6 / 100.0 * hipRatio
-        let hipX: Float   = side * legRx * 0.50
-        let crotchY: Float = (76.0 - 111.0) / 100.0
-        let ankleY: Float  = crotchY - m.inseam / 100.0
+        let torsoRx: Float = 8.6 / 100.0 * hipRatio   // 胴体y=76のrx
+        let torsoRz: Float = 7.1 / 100.0 * hipRatio   // 胴体y=76のrz
+        let hipX: Float    = side * torsoRx * 0.5      // ±4.3cm
+        let legRx0: Float  = torsoRx * 0.5             // 4.3cm（胴体と一致）
+        let legRz0: Float  = torsoRz * 0.5             // 3.55cm
 
         let thighR: Float = m.thigh / (2 * Float.pi) / 100.0
         let calfR:  Float = m.calf  / (2 * Float.pi) / 100.0
         let ankleR: Float = calfR * 0.72
-        let legR0:  Float = legRx * 0.50  // 付け根半径
-
+        let crotchY: Float = (76.0 - 111.0) / 100.0
+        let ankleY: Float  = crotchY - m.inseam / 100.0
+        let legLen = abs(ankleY - crotchY)
         let seg = ringSegments
 
-        // 脚スライス（t=0は胴体y=76頂点を流用）
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
-        let legLen = abs(ankleY - crotchY)
         let slices: [Sl] = [
-            (0.00, thighR * 0.92,  thighR * 0.85,  0.50),  // 付け根（大腿上部）
-            (0.12, thighR * 1.00,  thighR * 0.92,  0.60),
-            (0.25, thighR * 0.96,  thighR * 0.88,  0.58),
-            (0.38, thighR * 0.88,  thighR * 0.82,  0.52),
-            (0.50, calfR  * 1.10,  calfR  * 0.95,  0.42),
-            (0.62, calfR,          calfR  * 0.90,  0.38),
-            (0.75, calfR  * 0.88,  calfR  * 0.85,  0.30),
-            (0.88, ankleR * 1.08,  ankleR * 0.95,  0.22),
-            (1.00, ankleR,         ankleR * 0.88,  0.18),
+            (0.00, legRx0,         legRz0,         0.50),  // 付け根：胴体と完全一致
+            (0.10, thighR * 0.98,  thighR * 0.90,  0.60),
+            (0.22, thighR * 0.94,  thighR * 0.86,  0.58),
+            (0.35, thighR * 0.86,  thighR * 0.80,  0.50),
+            (0.48, calfR  * 1.08,  calfR  * 0.94,  0.42),
+            (0.60, calfR,          calfR  * 0.88,  0.38),
+            (0.74, calfR  * 0.86,  calfR  * 0.82,  0.30),
+            (0.87, ankleR * 1.06,  ankleR * 0.94,  0.22),
+            (1.00, ankleR,         ankleR * 0.86,  0.18),
         ]
 
         let legBase = vertices.count
 
-        // 脚スライス頂点生成
         for sl in slices {
-            let xPos = hipX + side * sl.t * 0.003
+            let xPos = hipX
             let yPos = crotchY - sl.t * legLen
-            let zPos: Float = -0.004 + sl.t * 0.015
+            let zPos: Float = -0.003 + sl.t * 0.012
             let angles = StandardBodyGenerator.ellipseArcAngles(rx: sl.rx, rz: sl.rz, n: seg)
             for vi in 0..<seg {
                 let a = angles[vi]
@@ -506,11 +508,12 @@ enum StandardBodyGenerator {
             }
         }
 
-        // 胴体y=76リング(legRingBase) → 脚t=0スライス(legBase): 外側半分をbridge
-        let q = seg / 4
+        // ── Bridge：胴体y=76(legRingBase) → 脚t=0(legBase) ──
+        // 右脚: vi=0〜seg/2（X+側）、左脚: vi=seg/2〜seg-1（X-側）
+        let half = seg / 2
         let bridgeRange: [Int] = side > 0
-            ? (Array((3*q)..<seg) + Array(0...q))
-            : Array(q...(3*q))
+            ? Array(0...half)          // 右脚: vi=0〜24
+            : Array(half...(seg-1)) + [0]  // 左脚: vi=24〜47+0（折り返し）
 
         for i in 0..<(bridgeRange.count - 1) {
             let vi = bridgeRange[i]; let vn = bridgeRange[i+1]
@@ -534,7 +537,7 @@ enum StandardBodyGenerator {
         let ankleCap = vertices.count
         let lastBase = legBase + (slices.count-1)*seg
         vertices.append(BodyVertex(
-            position: SIMD3(hipX + side*0.003, ankleY, 0.011),
+            position: SIMD3(hipX, ankleY, 0.009),
             normal: SIMD3(0, -1, 0), region: .leg, influenceWeight: 0.1,
             uv: SIMD2(0.5, 1.0)
         ))
@@ -542,19 +545,18 @@ enum StandardBodyGenerator {
             polygons.append(BodyPolygon(v0: ankleCap, v1: lastBase+vi, v2: lastBase+(vi+1)%seg))
         }
 
-        // 股部分キャップ（内側の穴を閉じる）
+        // 股キャップ（内側を閉じる）
         let groinCap = vertices.count
         vertices.append(BodyVertex(
-            position: SIMD3(hipX, crotchY, -0.004),
-            normal: SIMD3(0, 1, 0), region: .leg, influenceWeight: 0.45,
+            position: SIMD3(hipX, crotchY, -0.003),
+            normal: SIMD3(0, 1, 0), region: .leg, influenceWeight: 0.5,
             uv: SIMD2(0.5, 0.0)
         ))
         let innerRange: [Int] = side > 0
-            ? Array((q+1)..<(3*q))
-            : (Array((3*q+1)..<seg) + Array(0..<q))
+            ? Array(half...(seg-1)) + [0]
+            : Array(0...half)
         for i in 0..<(innerRange.count - 1) {
-            let vi = innerRange[i]; let vn = innerRange[i+1]
-            polygons.append(BodyPolygon(v0: groinCap, v1: legBase+vi, v2: legBase+vn))
+            polygons.append(BodyPolygon(v0: groinCap, v1: legBase+innerRange[i], v2: legBase+innerRange[i+1]))
         }
     }
 }
