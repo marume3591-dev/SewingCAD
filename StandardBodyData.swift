@@ -359,8 +359,9 @@ enum StandardBodyGenerator {
         let armDX = armDirX / armLen3D * armLen
         let armDY = armDirY / armLen3D * armLen
 
-        let startY: Float = (138.0 - 111.0) / 100.0  // shoulderSliceIndex=19のy
-        let startX: Float = side * 13.8 / 100.0
+        // 腕の開始: y=138断面の外側端(rx=13.8cm)に配置
+        let startY: Float = (138.0 - 111.0) / 100.0
+        let startX: Float = side * 12.5 / 100.0  // 胴体内側に少し埋め込む
 
         // 腕スライス（t=0.0を除く：付け根は胴体頂点を流用）
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
@@ -410,25 +411,7 @@ enum StandardBodyGenerator {
         // 右腕(side>0): vi=0〜6 と vi=19〜23 を接続
         // 左腕(side<0): vi=7〜17 を接続
 
-        // 胴体y=138断面(shoulderRingBase)と腕t=0.05(base)を外側半分で接続
-        // 外側: 右腕=X+側(vi=0〜quarterSeg, 3*quarterSeg〜seg-1), 左腕=X-側
-        let quarterSeg = seg / 4
-        let outerIndices: [Int]
-        if side > 0 {
-            outerIndices = Array((3 * quarterSeg)..<seg) + Array(0...(quarterSeg))
-        } else {
-            outerIndices = Array(quarterSeg...(3 * quarterSeg))
-        }
-        for i in 0..<(outerIndices.count - 1) {
-            let vi   = outerIndices[i]
-            let next = outerIndices[i + 1]
-            let t0 = shoulderRingBase + vi
-            let t1 = shoulderRingBase + next
-            let a0 = base + vi
-            let a1 = base + next
-            polygons.append(BodyPolygon(v0: t0, v1: a0, v2: a1))
-            polygons.append(BodyPolygon(v0: t0, v1: a1, v2: t1))
-        }
+        // bridgeなし：腕は胴体に埋め込まれた形で配置（開口部はカリングで非表示）
 
         // 腕スライス間ポリゴン
         for si in 0..<(slices.count - 1) {
@@ -551,23 +534,6 @@ enum StandardBodyGenerator {
         // bridgeIndices: ringSegments数に対応して動的に計算
         // 右脚(side>0): X>0側 = vi=0..seg/4 と vi=3*seg/4..seg-1
         // 左脚(side<0): X<0側 = vi=seg/4..3*seg/4
-        // 脚t=0.00(base)と胴体底面(legRingBase)を外側半分で接続
-        let legQuarter = ringSegments / 4
-        let legBridgeIndices: [Int]
-        if side > 0 {
-            legBridgeIndices = Array((3 * legQuarter)..<ringSegments) + Array(0..<(legQuarter + 1))
-        } else {
-            legBridgeIndices = Array(legQuarter..<(3 * legQuarter + 1))
-        }
-        for i in 0..<(legBridgeIndices.count - 1) {
-            let vi   = legBridgeIndices[i]
-            let next = legBridgeIndices[i + 1]
-            let t0 = legRingBase + vi
-            let t1 = legRingBase + next
-            let a0 = base + vi
-            let a1 = base + next
-            polygons.append(BodyPolygon(v0: t0, v1: a0, v2: a1))
-            polygons.append(BodyPolygon(v0: t0, v1: a1, v2: t1))
-        }
+        // 脚bridgeなし：胴体底面は胴体キャップで閉じる
     }
 }
