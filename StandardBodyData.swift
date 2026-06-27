@@ -411,7 +411,21 @@ enum StandardBodyGenerator {
         // 右腕(side>0): vi=0〜6 と vi=19〜23 を接続
         // 左腕(side<0): vi=7〜17 を接続
 
-        // bridgeなし：腕は胴体に埋め込まれた形で配置（開口部はカリングで非表示）
+        // 腕付け根キャップ（t=0.05の開口を閉じる）
+        let armCapIdx = vertices.count
+        let armCapX = startX + armDX * slices[0].t
+        let armCapY = startY + armDY * slices[0].t
+        let armCapZ: Float = 0.010 * (1 - slices[0].t)
+        vertices.append(BodyVertex(
+            position: SIMD3(armCapX, armCapY, armCapZ),
+            normal: simd_normalize(SIMD3<Float>(-armDX, -armDY, 0)),
+            region: .shoulder, influenceWeight: 0.85,
+            uv: SIMD2(0.5, 0.0)
+        ))
+        for vi in 0..<seg {
+            let next = (vi + 1) % seg
+            polygons.append(BodyPolygon(v0: armCapIdx, v1: base + next, v2: base + vi))
+        }
 
         // 腕スライス間ポリゴン
         for si in 0..<(slices.count - 1) {
@@ -513,6 +527,19 @@ enum StandardBodyGenerator {
                 polygons.append(BodyPolygon(v0: b0+vi,   v1: b1+vi,   v2: b1+next))
                 polygons.append(BodyPolygon(v0: b0+vi,   v1: b1+next, v2: b0+next))
             }
+        }
+
+        // 脚付け根キャップ（開口を閉じる）
+        let topCapIdx = vertices.count
+        vertices.append(BodyVertex(
+position: SIMD3(hipX, crotchY, -0.004),  // 付け根Z位置
+            normal: SIMD3(0, 1, 0),
+            region: .leg, influenceWeight: 0.45,
+            uv: SIMD2(0.5, 0.0)
+        ))
+        for vi in 0..<seg {
+            let next = (vi + 1) % seg
+            polygons.append(BodyPolygon(v0: topCapIdx, v1: base + next, v2: base + vi))
         }
 
         // 足首キャップ
