@@ -342,7 +342,7 @@ enum StandardBodyGenerator {
     private static func buildArm(
         m: StandardMeasurement,
         side: Float,
-        shoulderRingBase: Int,
+        shoulderRingBase: Int,  // 胴体y=138断面の頂点開始インデックス
         ringSegments: Int,
         vertices: inout [BodyVertex],
         polygons:  inout [BodyPolygon]
@@ -352,215 +352,213 @@ enum StandardBodyGenerator {
         let wristR: Float = m.wrist / (2 * Float.pi) / 100.0
         let armLen: Float = m.sleeveLen / 100.0
 
-        // 腕の方向：斜め外下
-        let armDirX: Float = side * 0.22  // より下向きに
+        let armDirX: Float = side * 0.22
         let armDirY: Float = -1.0
         let armLen3D = sqrt(armDirX * armDirX + armDirY * armDirY)
         let armDX = armDirX / armLen3D * armLen
         let armDY = armDirY / armLen3D * armLen
 
-        // 腕の開始: y=138断面の外側端(rx=13.8cm)に配置
+        // 腕の付け根：胴体y=138断面の外側端
         let startY: Float = (138.0 - 111.0) / 100.0
-        let startX: Float = side * 12.5 / 100.0  // 胴体内側に少し埋め込む
+        let startX: Float = side * 13.8 / 100.0
 
-        // 腕スライス（t=0.0を除く：付け根は胴体頂点を流用）
+        let seg = ringSegments
+
+        // 腕スライス（t=0は胴体頂点を流用するので省略）
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
         let slices: [Sl] = [
-            (0.05, uArmR * 1.20, uArmR * 1.10, 0.85),  // 肩付近（胴体に近いサイズ）
-            (0.12, uArmR * 1.08, uArmR * 1.00, 0.7),
-            (0.25, uArmR,        uArmR * 0.95,  0.6),
-            (0.38, uArmR * 0.94, uArmR * 0.90,  0.5),
-            (0.50, elbowR * 1.10,elbowR * 0.95, 0.4),
-            (0.63, elbowR,       elbowR * 0.88, 0.4),
-            (0.76, wristR * 1.28,wristR * 1.15, 0.35),
-            (0.88, wristR * 1.08,wristR * 1.02, 0.3),
-            (1.00, wristR,       wristR * 0.88, 0.25),
+            (0.10, uArmR * 1.15, uArmR * 1.05, 0.8),
+            (0.22, uArmR * 1.05, uArmR * 0.95, 0.65),
+            (0.35, uArmR,        uArmR * 0.90,  0.55),
+            (0.48, elbowR * 1.12,elbowR * 0.95, 0.42),
+            (0.60, elbowR,       elbowR * 0.88, 0.40),
+            (0.72, wristR * 1.30,wristR * 1.15, 0.35),
+            (0.85, wristR * 1.10,wristR * 1.02, 0.28),
+            (1.00, wristR,       wristR * 0.88, 0.22),
         ]
 
-        // 腕リングは胴体と同じ24頂点を使う
-        let seg  = ringSegments  // 24
-        let base = vertices.count
-
-        // 腕スライス頂点を生成（付け根はなし、t=0.12から）
-        for (_, sl) in slices.enumerated() {
-            let t  = sl.t
-            let cx = startX + armDX * t
-            let cy = startY + armDY * t
-            let cz: Float = 0.010 * (1 - t)
-            let armAngles = StandardBodyGenerator.ellipseArcAngles(rx: sl.rx, rz: sl.rz, n: seg)
-
+        // 腕スライス頂点生成（t>0のみ）
+        let armBase = vertices.count
+        for sl in slices {
+            let cx = startX + armDX * sl.t
+            let cy = startY + armDY * sl.t
+            let cz: Float = 0.008 * (1 - sl.t)
+            let angles = StandardBodyGenerator.ellipseArcAngles(rx: sl.rx, rz: sl.rz, n: seg)
             for vi in 0..<seg {
-                let angle = armAngles[vi]
-                let cosA = cos(angle); let sinA = sin(angle)
+                let a = angles[vi]
                 vertices.append(BodyVertex(
-                    position: SIMD3(cx + cosA * sl.rx, cy, cz + sinA * sl.rz),
-                    normal:   SIMD3(cosA, 0, sinA),
-                    region:   .shoulder, influenceWeight: sl.w,
-                    uv: SIMD2(Float(vi) / Float(seg), sl.t)
+                    position: SIMD3(cx + cos(a)*sl.rx, cy, cz + sin(a)*sl.rz),
+                    normal:   SIMD3(cos(a), 0, sin(a)),
+                    region: .shoulder, influenceWeight: sl.w,
+                    uv: SIMD2(Float(vi)/Float(seg), sl.t)
                 ))
             }
         }
 
-        // 胴体y=138断面（shoulderRingBase）→ 腕最初のスライス（base）
-        // 腕の外側半分のみ接続（X+側=右腕外側、X-側=左腕外側）
-        //
-        // 胴体リングの頂点X座標（vi=0がX+端=+19cm）:
-        //   右外側(X+): vi=0〜6, vi=19〜23  → X > 0
-        //   左外側(X-): vi=7〜17            → X < 0
-        //
-        // 右腕(side>0): vi=0〜6 と vi=19〜23 を接続
-        // 左腕(side<0): vi=7〜17 を接続
+        // 胴体y=138リング(shoulderRingBase) → 腕最初スライス(armBase)
+        // 胴体リングと腕リングを全周でつなぐ（等弧長で頂点順序が一致）
+        // ただし腕のrxは胴体rxより小さいので、対応するvi番号でX座標が異なる
+        // → 外側のvi番号帯（side側）だけをつなぐ
+        let q = seg / 4
+        // 右腕: vi=3q〜seg-1 + 0〜q, 左腕: vi=q〜3q
+        let bridgeRange: [Int] = side > 0
+            ? (Array((3*q)..<seg) + Array(0...q))
+            : Array(q...(3*q))
 
-        // 腕付け根キャップ（t=0.05の開口を閉じる）
-        let armCapIdx = vertices.count
-        let armCapX = startX + armDX * slices[0].t
-        let armCapY = startY + armDY * slices[0].t
-        let armCapZ: Float = 0.010 * (1 - slices[0].t)
-        vertices.append(BodyVertex(
-            position: SIMD3(armCapX, armCapY, armCapZ),
-            normal: simd_normalize(SIMD3<Float>(-armDX, -armDY, 0)),
-            region: .shoulder, influenceWeight: 0.85,
-            uv: SIMD2(0.5, 0.0)
-        ))
-        for vi in 0..<seg {
-            let next = (vi + 1) % seg
-            polygons.append(BodyPolygon(v0: armCapIdx, v1: base + next, v2: base + vi))
+        for i in 0..<(bridgeRange.count - 1) {
+            let vi = bridgeRange[i]; let vn = bridgeRange[i+1]
+            let t0 = shoulderRingBase + vi; let t1 = shoulderRingBase + vn
+            let a0 = armBase + vi;          let a1 = armBase + vn
+            polygons.append(BodyPolygon(v0: t0, v1: a0, v2: a1))
+            polygons.append(BodyPolygon(v0: t0, v1: a1, v2: t1))
         }
 
         // 腕スライス間ポリゴン
         for si in 0..<(slices.count - 1) {
             for vi in 0..<seg {
-                let next = (vi + 1) % seg
-                let b0 = base + si * seg
-                let b1 = base + (si + 1) * seg
+                let next = (vi+1) % seg
+                let b0 = armBase + si*seg; let b1 = armBase + (si+1)*seg
                 polygons.append(BodyPolygon(v0: b0+vi,   v1: b1+vi,   v2: b1+next))
                 polygons.append(BodyPolygon(v0: b0+vi,   v1: b1+next, v2: b0+next))
             }
         }
 
         // 手首キャップ
-        let capIdx   = vertices.count
-        let lastBase = base + (slices.count - 1) * seg
+        let wristCap = vertices.count
+        let lastBase = armBase + (slices.count-1)*seg
         vertices.append(BodyVertex(
-            position: SIMD3(startX + armDX, startY + armDY, 0),
+            position: SIMD3(startX+armDX, startY+armDY, 0),
             normal: simd_normalize(SIMD3<Float>(armDX, armDY, 0)),
             region: .shoulder, influenceWeight: 0.2,
             uv: SIMD2(0.5, 1.0)
         ))
         for vi in 0..<seg {
-            polygons.append(BodyPolygon(v0: capIdx, v1: lastBase + vi, v2: lastBase + (vi+1) % seg))
+            polygons.append(BodyPolygon(v0: wristCap, v1: lastBase+vi, v2: lastBase+(vi+1)%seg))
+        }
+
+        // 肩キャップ（内側の穴を閉じる）
+        let shoulderCap = vertices.count
+        vertices.append(BodyVertex(
+            position: SIMD3(startX, startY, 0.008),
+            normal: simd_normalize(SIMD3<Float>(-armDX, -armDY, 0)),
+            region: .shoulder, influenceWeight: 0.85,
+            uv: SIMD2(0.5, 0.0)
+        ))
+        let innerRange: [Int] = side > 0
+            ? Array((q+1)..<(3*q))
+            : (Array((3*q+1)..<seg) + Array(0..<q))
+        for i in 0..<(innerRange.count - 1) {
+            let vi = innerRange[i]; let vn = innerRange[i+1]
+            let a0 = armBase + vi; let a1 = armBase + vn
+            polygons.append(BodyPolygon(v0: shoulderCap, v1: a0, v2: a1))
         }
     }
 
-    // ── 脚（片側10断面）────────────────────────────────────
     private static func buildLeg(
         m: StandardMeasurement,
         side: Float,
-        legRingBase: Int,
+        legRingBase: Int,       // 胴体y=76断面の頂点開始インデックス
         ringSegments: Int,
         vertices: inout [BodyVertex],
         polygons:  inout [BodyPolygon]
     ) {
-        let thighR  = m.thigh / (2 * Float.pi) / 100.0
-        let calfR   = m.calf  / (2 * Float.pi) / 100.0
-        let ankleR  = calfR * 0.60
-        let hipR    = m.hip   / (2 * Float.pi) / 100.0
-
-        // 胴体の股断面（y=76cm）からスタート
-        let crotchY: Float = (76.0  - 111.0) / 100.0  // ≈ -0.35m
-        let ankleY:  Float = (3.0   - 111.0) / 100.0  // 床面3cm上 ≈ -1.08m
-        let legLen  = crotchY - ankleY
-
-        // 股付根のX位置：胴体底断面rx=14cmの中間点に配置
-        // 脚2本が左右に分かれるので中心から7cm = rx/2
         let hipRatio: Float = m.hip / 91.0
-        // 胴体底断面のモーフ後rx ≈ 14cm × hipRatio × 0.5
-        let hipX: Float = side * 8.6 / 2.0 / 100.0 * hipRatio   // y=76のrx/2
-        let crotchJointR: Float = 8.6 / 2.0 / 100.0 * hipRatio       // rx/2
+        // y=76のrx=8.6cm、脚は左右に分かれるのでhipX=±rx/2
+        let legRx: Float  = 8.6 / 100.0 * hipRatio
+        let hipX: Float   = side * legRx * 0.50
+        let crotchY: Float = (76.0 - 111.0) / 100.0
+        let ankleY: Float  = crotchY - m.inseam / 100.0
 
+        let thighR: Float = m.thigh / (2 * Float.pi) / 100.0 * hipRatio
+        let calfR:  Float = m.calf  / (2 * Float.pi) / 100.0
+        let ankleR: Float = calfR * 0.72
+        let legR0:  Float = legRx * 0.50  // 付け根半径
+
+        let seg = ringSegments
+
+        // 脚スライス（t=0は胴体y=76頂点を流用）
         typealias Sl = (t: Float, rx: Float, rz: Float, w: Float)
+        let legLen = abs(ankleY - crotchY)
         let slices: [Sl] = [
-            (0.00, crotchJointR,       crotchJointR,       0.45), // 胴体底面にフィット
-            (0.08, thighR * 1.10,      thighR * 1.00,      0.65),
-            (0.20, thighR,             thighR * 0.95,      0.60),
-            (0.32, thighR * 0.88,      thighR * 0.85,      0.52),
-            (0.44, thighR * 0.76,      thighR * 0.72,      0.42),  // 膝上
-            (0.52, thighR * 0.72,      thighR * 0.67,      0.38),  // 膝
-            (0.62, calfR  * 1.08,      calfR  * 1.00,      0.42),
-            (0.74, calfR,              calfR  * 0.92,      0.38),
-            (0.88, ankleR * 1.15,      ankleR * 1.05,      0.28),  // くるぶし上
-            (1.00, ankleR,             ankleR * 0.88,      0.18),
+            (0.00, legR0,          legR0,          0.45),  // 付け根（胴体と接続）
+            (0.10, thighR * 1.05,  thighR * 0.98,  0.60),
+            (0.22, thighR,         thighR * 0.95,   0.58),
+            (0.35, thighR * 0.92,  thighR * 0.88,   0.52),
+            (0.48, calfR  * 1.10,  calfR  * 0.95,   0.42),
+            (0.60, calfR,          calfR  * 0.90,   0.38),
+            (0.75, calfR  * 0.88,  calfR  * 0.85,   0.30),
+            (0.88, ankleR * 1.08,  ankleR * 0.95,   0.22),
+            (1.00, ankleR,         ankleR * 0.88,   0.18),
         ]
 
-        let seg  = ringSegments  // 胴体と同じセグメント数で統一
-        let base = vertices.count
+        let legBase = vertices.count
 
-        for (i, sl) in slices.enumerated() {
-            let t    = sl.t
-            let xPos = hipX + side * t * 0.004  // わずかに外開き
-            let yPos = crotchY - t * legLen
-            let zPos: Float = -0.004 + t * 0.015  // 付け根Z補正
-
-            let uRow = Float(i) / Float(slices.count - 1)
-            let legAngles = StandardBodyGenerator.ellipseArcAngles(rx: sl.rx, rz: sl.rz, n: seg)
+        // 脚スライス頂点生成
+        for sl in slices {
+            let xPos = hipX + side * sl.t * 0.003
+            let yPos = crotchY - sl.t * legLen
+            let zPos: Float = -0.004 + sl.t * 0.015
+            let angles = StandardBodyGenerator.ellipseArcAngles(rx: sl.rx, rz: sl.rz, n: seg)
             for vi in 0..<seg {
-                let angle = legAngles[vi]
-                let cosA = cos(angle)
-                let sinA = sin(angle)
+                let a = angles[vi]
                 vertices.append(BodyVertex(
-                    position: SIMD3(xPos + cosA * sl.rx,
-                                    yPos,
-                                    zPos + sinA * sl.rz),
-                    normal:   SIMD3(cosA, 0, sinA),
-                    region:   .leg,
-                    influenceWeight: sl.w,
-                    uv: SIMD2(Float(vi) / Float(seg), uRow)
+                    position: SIMD3(xPos + cos(a)*sl.rx, yPos, zPos + sin(a)*sl.rz),
+                    normal:   SIMD3(cos(a), 0, sin(a)),
+                    region: .leg, influenceWeight: sl.w,
+                    uv: SIMD2(Float(vi)/Float(seg), sl.t)
                 ))
             }
         }
 
+        // 胴体y=76リング(legRingBase) → 脚t=0スライス(legBase): 外側半分をbridge
+        let q = seg / 4
+        let bridgeRange: [Int] = side > 0
+            ? (Array((3*q)..<seg) + Array(0...q))
+            : Array(q...(3*q))
+
+        for i in 0..<(bridgeRange.count - 1) {
+            let vi = bridgeRange[i]; let vn = bridgeRange[i+1]
+            let t0 = legRingBase + vi; let t1 = legRingBase + vn
+            let a0 = legBase + vi;     let a1 = legBase + vn
+            polygons.append(BodyPolygon(v0: t0, v1: a0, v2: a1))
+            polygons.append(BodyPolygon(v0: t0, v1: a1, v2: t1))
+        }
+
+        // 脚スライス間ポリゴン
         for si in 0..<(slices.count - 1) {
             for vi in 0..<seg {
-                let next = (vi + 1) % seg
-                let b0 = base + si * seg
-                let b1 = base + (si + 1) * seg
+                let next = (vi+1) % seg
+                let b0 = legBase + si*seg; let b1 = legBase + (si+1)*seg
                 polygons.append(BodyPolygon(v0: b0+vi,   v1: b1+vi,   v2: b1+next))
                 polygons.append(BodyPolygon(v0: b0+vi,   v1: b1+next, v2: b0+next))
             }
         }
 
-        // 脚付け根キャップ（開口を閉じる）
-        let topCapIdx = vertices.count
-        vertices.append(BodyVertex(
-position: SIMD3(hipX, crotchY, -0.004),  // 付け根Z位置
-            normal: SIMD3(0, 1, 0),
-            region: .leg, influenceWeight: 0.45,
-            uv: SIMD2(0.5, 0.0)
-        ))
-        for vi in 0..<seg {
-            let next = (vi + 1) % seg
-            polygons.append(BodyPolygon(v0: topCapIdx, v1: base + next, v2: base + vi))
-        }
-
         // 足首キャップ
-        let capIdx   = vertices.count
-        let lastBase = base + (slices.count - 1) * seg
+        let ankleCap = vertices.count
+        let lastBase = legBase + (slices.count-1)*seg
         vertices.append(BodyVertex(
-            position: SIMD3(hipX + side * 0.004, ankleY, 0.018),
+            position: SIMD3(hipX + side*0.003, ankleY, 0.011),
             normal: SIMD3(0, -1, 0), region: .leg, influenceWeight: 0.1,
             uv: SIMD2(0.5, 1.0)
         ))
         for vi in 0..<seg {
-            polygons.append(BodyPolygon(v0: capIdx, v1: lastBase + vi, v2: lastBase + (vi+1) % seg))
+            polygons.append(BodyPolygon(v0: ankleCap, v1: lastBase+vi, v2: lastBase+(vi+1)%seg))
         }
 
-        // ── 胴体底面(y=76) → 脚付け根のブリッジ接続 ──────────
-        // 胴体底面リング(ringSegments=24, 中心X=0, rx=14cm)の
-        // 外側半分(side側)を脚付け根リングにつなぐ
-        //
-        // bridgeIndices: ringSegments数に対応して動的に計算
-        // 右脚(side>0): X>0側 = vi=0..seg/4 と vi=3*seg/4..seg-1
-        // 左脚(side<0): X<0側 = vi=seg/4..3*seg/4
-        // 脚bridgeなし：胴体底面は胴体キャップで閉じる
+        // 股部分キャップ（内側の穴を閉じる）
+        let groinCap = vertices.count
+        vertices.append(BodyVertex(
+            position: SIMD3(hipX, crotchY, -0.004),
+            normal: SIMD3(0, 1, 0), region: .leg, influenceWeight: 0.45,
+            uv: SIMD2(0.5, 0.0)
+        ))
+        let innerRange: [Int] = side > 0
+            ? Array((q+1)..<(3*q))
+            : (Array((3*q+1)..<seg) + Array(0..<q))
+        for i in 0..<(innerRange.count - 1) {
+            let vi = innerRange[i]; let vn = innerRange[i+1]
+            polygons.append(BodyPolygon(v0: groinCap, v1: legBase+vi, v2: legBase+vn))
+        }
     }
 }
